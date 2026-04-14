@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: SwiftLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: norio-nomura/action-swiftlint@3.2.1
+        with:
+          args: --strict
+
+  build:
+    name: Build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Download Sparkle
+        run: make setup
+
+      - name: Build
+        run: make
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: BilingualSwitcher.app
+          path: build/BilingualSwitcher.app
