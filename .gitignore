@@ -1,0 +1,11 @@
+build/
+.DS_Store
+*.swp
+*~
+xcuserdata/
+DerivedData/
+.build/
+.claude/
+
+# Sparkle framework (download via `make setup`)
+Vendor/

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Bilingual Switcher</string>
+    <key>CFBundleDisplayName</key>
+    <string>Bilingual Switcher</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.local.bilingual-switcher</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleExecutable</key>
+    <string>BilingualSwitcher</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>SUPublicEDKey</key>
+    <string>qK8vqZSkyu/2+rmlhsuF7Haz01reLYoMYlRi5dSgm5w=</string>
+    <key>SUFeedURL</key>
+    <string>https://komandakycto.github.io/bilingual-switcher/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
