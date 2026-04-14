@@ -37,6 +37,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let button = statusItem.button {
+            button.toolTip = "Bilingual Switcher"
+            button.setAccessibilityLabel("Bilingual Switcher")
             if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "png"),
                let image = NSImage(contentsOfFile: iconPath) {
                 image.isTemplate = true
@@ -151,9 +153,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showPreferences() {
         if preferencesWindow == nil {
             preferencesWindow = PreferencesWindowController { [weak self] in
-                self?.hotkeyManager.unregister()
-                self?.hotkeyManager.register()
-                self?.setupMenuBar()
+                guard let self else { return }
+                self.hotkeyManager.unregister()
+                self.hotkeyManager.register()
+                self.setupMenuBar()
+
+                if self.hotkeyManager.registrationFailed {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not register shortcut"
+                    alert.informativeText = """
+                        This key combination may be in use by another app \
+                        or the system. Please choose a different shortcut.
+                        """
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
             }
         }
         preferencesWindow?.showWindow(nil)

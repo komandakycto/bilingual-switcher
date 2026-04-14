@@ -1,6 +1,5 @@
 import Cocoa
 import Carbon
-import UserNotifications
 
 class TextSwitcher {
 
@@ -95,10 +94,14 @@ class TextSwitcher {
     // MARK: - Notifications
 
     private func showAccessibilityNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "Bilingual Switcher"
-        content.body = "Accessibility permission required. Open Preferences to grant access."
-        let request = UNNotificationRequest(identifier: "accessibility", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permission Required"
+        alert.informativeText = """
+            Grant access in System Settings \u{2192} Privacy & Security \u{2192} Accessibility, \
+            then restart the app.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

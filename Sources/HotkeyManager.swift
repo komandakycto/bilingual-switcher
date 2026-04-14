@@ -58,8 +58,14 @@ class HotkeyManager {
 
         if status != noErr {
             NSLog("Failed to register hotkey: \(status)")
+            registrationFailed = true
+        } else {
+            registrationFailed = false
         }
     }
+
+    /// Whether the last `register()` call failed (e.g. conflicting shortcut).
+    private(set) var registrationFailed = false
 
     func unregister() {
         if let ref = hotkeyRef {

@@ -22,16 +22,10 @@ If you type `Ghbdtn!` when you meant `Привет!` — just select the text, p
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS
 - **Auto-updates** — built-in update checking via Sparkle
-- **Privacy-first** — runs 100% locally, no network access, no telemetry
+- **Privacy-first** — no telemetry, no data collection. Only network access is optional update checks via Sparkle
 - **Lightweight** — native Swift, no Electron, minimal resource usage
 
 ## Install
-
-### Homebrew (coming soon)
-
-```bash
-brew install --cask bilingual-switcher
-```
 
 ### Manual download
 
