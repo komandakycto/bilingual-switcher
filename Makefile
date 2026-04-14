@@ -39,7 +39,7 @@ $(APP_BUNDLE): $(SOURCES) Info.plist Resources/AppIcon.icns Resources/MenuBarIco
 	@cp Resources/MenuBarIcon.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon.png
 	@cp Resources/MenuBarIcon@2x.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon@2x.png 2>/dev/null || true
 	@rsync -a --delete $(SPARKLE_DIR) $(APP_BUNDLE)/Contents/Frameworks/
-	@codesign --force --deep --sign - --options runtime $(APP_BUNDLE)
+	@codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "✓ Built $(APP_BUNDLE) (universal)"
 
 # --- Icons ---
