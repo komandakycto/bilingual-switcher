@@ -31,7 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu Bar
 
-    func setupMenuBar() {
+    private func setupMenuBar() {
         if statusItem == nil {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         }
@@ -79,7 +79,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prefsItem.target = self
         menu.addItem(prefsItem)
 
-        let aboutItem = NSMenuItem(title: "About Bilingual Switcher", action: #selector(showAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(
+            title: "About Bilingual Switcher",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
         aboutItem.target = self
         menu.addItem(aboutItem)
 
@@ -120,11 +124,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "Later")
 
             if alert.runModal() == .alertFirstButtonReturn {
-                let url = URL(
+                guard let url = URL(
                     string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                )!
+                ) else { return }
                 NSWorkspace.shared.open(url)
             }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func activateApp() {
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
@@ -143,7 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         preferencesWindow?.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activateApp()
     }
 
     @objc private func showAbout() {
@@ -151,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             aboutWindow = AboutWindowController()
         }
         aboutWindow?.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activateApp()
     }
 
     @objc private func quit() {

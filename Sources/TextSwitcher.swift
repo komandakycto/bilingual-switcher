@@ -55,7 +55,7 @@ class TextSwitcher {
             }
 
             // 7. Restore original clipboard after paste completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self.restoreClipboard(savedItems, to: pasteboard)
             }
         }
@@ -65,14 +65,15 @@ class TextSwitcher {
 
     private func restoreClipboard(_ items: [[NSPasteboard.PasteboardType: Data]]?, to pasteboard: NSPasteboard) {
         guard let items, !items.isEmpty else { return }
-        pasteboard.clearContents()
-        for itemDict in items {
+        let pasteboardItems = items.map { itemDict -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in itemDict {
                 item.setData(data, forType: type)
             }
-            pasteboard.writeObjects([item])
+            return item
         }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(pasteboardItems)
     }
 
     // MARK: - Keyboard Simulation

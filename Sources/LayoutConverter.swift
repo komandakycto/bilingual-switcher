@@ -63,9 +63,10 @@ class LayoutConverter {
         var cyrillicCount = 0
 
         for scalar in text.unicodeScalars {
-            if (0x0041...0x007A).contains(scalar.value) { // Basic Latin letters
+            let value = scalar.value
+            if (0x0041...0x005A).contains(value) || (0x0061...0x007A).contains(value) {
                 latinCount += 1
-            } else if (0x0400...0x04FF).contains(scalar.value) { // Cyrillic block
+            } else if (0x0400...0x04FF).contains(value) {
                 cyrillicCount += 1
             }
         }
@@ -79,21 +80,14 @@ class LayoutConverter {
     /// Convert text between layouts. Returns the converted text and the direction that was applied.
     static func convert(_ text: String, direction: ConversionDirection = .auto) -> (String, ConversionDirection) {
         let resolvedDirection: ConversionDirection
-        if direction == .auto {
+        switch direction {
+        case .auto:
             resolvedDirection = detectDirection(text)
-        } else {
+        case .englishToRussian, .russianToEnglish:
             resolvedDirection = direction
         }
 
-        let map: [Character: Character]
-        switch resolvedDirection {
-        case .englishToRussian:
-            map = englishToRussianMap
-        case .russianToEnglish:
-            map = russianToEnglishMap
-        case .auto:
-            map = englishToRussianMap
-        }
+        let map = resolvedDirection == .englishToRussian ? englishToRussianMap : russianToEnglishMap
 
         let converted = String(text.map { char in
             map[char] ?? char

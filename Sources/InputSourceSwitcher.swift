@@ -15,19 +15,16 @@ enum InputSourceSwitcher {
             return
         }
 
-        guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] else {
+        let filter = [
+            kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource
+        ] as CFDictionary
+
+        guard let sources = TISCreateInputSourceList(filter, false)?
+            .takeRetainedValue() as? [TISInputSource] else {
             return
         }
 
         for source in sources {
-            guard let categoryRef = TISGetInputSourceProperty(source, kTISPropertyInputSourceCategory) else {
-                continue
-            }
-            let category = Unmanaged<CFString>.fromOpaque(categoryRef).takeUnretainedValue() as String
-            guard category == (kTISCategoryKeyboardInputSource as String) else {
-                continue
-            }
-
             guard let languagesRef = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) else {
                 continue
             }
