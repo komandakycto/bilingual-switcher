@@ -11,7 +11,8 @@
 
 <p align="center">
 A lightweight macOS menu bar app that converts selected text between<br>
-<strong>English</strong> (QWERTY) and <strong>Russian</strong> (ЙЦУКЕН) keyboard layouts with a single hotkey.
+any two keyboard layouts with a single hotkey.<br>
+Supports <strong>any language pair</strong> — English, Russian, French, German, Spanish, and more.
 </p>
 
 ---
@@ -21,7 +22,8 @@ If you type `Ghbdtn!` when you meant `Привет!` — just select the text, p
 ## Features
 
 - **Instant conversion** — select text, press hotkey, done
-- **Auto-detection** — detects whether text is Latin or Cyrillic and converts in the right direction
+- **Any language pair** — dynamically reads your installed keyboard layouts via macOS APIs, no hardcoded mappings
+- **Auto-detection** — detects which layout produced the text and converts to the other
 - **Configurable hotkey** — set any key combination in Preferences
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS

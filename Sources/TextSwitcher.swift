@@ -40,7 +40,14 @@ class TextSwitcher {
                 return
             }
 
-            // 4. Convert
+            // 4. Check we have enough layouts to convert
+            guard KeyboardLayoutMap.installedLayouts().count >= 2 else {
+                self.showSingleLayoutNotification()
+                self.restoreClipboard(savedItems, to: pasteboard)
+                return
+            }
+
+            // 5. Convert
             let (converted, direction) = LayoutConverter.convert(text)
 
             // 5. Delete selected text, then paste converted text
@@ -103,6 +110,18 @@ class TextSwitcher {
     }
 
     // MARK: - Notifications
+
+    private func showSingleLayoutNotification() {
+        let alert = NSAlert()
+        alert.messageText = "Two Keyboard Layouts Required"
+        alert.informativeText = """
+            Add a second keyboard layout in System Settings → Keyboard → \
+            Input Sources to enable text conversion.
+            """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
 
     private func showAccessibilityNotification() {
         let alert = NSAlert()

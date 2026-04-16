@@ -14,11 +14,19 @@ COMMON_FLAGS = -O \
                -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 INSTALL_DIR  = /Applications
 
+TESTS          = $(wildcard Tests/*.swift)
+SOURCES_NO_MAIN = $(filter-out Sources/main.swift,$(SOURCES))
+XCTEST_PLAT    = $(shell xcode-select -p)/Platforms/MacOSX.platform/Developer
+XCTEST_FW      = $(XCTEST_PLAT)/Library/Frameworks
+XCTEST_LIB     = $(XCTEST_PLAT)/usr/lib
+TEST_BUNDLE    = $(BUILD_DIR)/Tests.xctest
+HOST_TARGET    = $(shell uname -m)-apple-macos14
+
 SPARKLE_VERSION = 2.9.1
 SPARKLE_URL     = https://github.com/sparkle-project/Sparkle/releases/download/$(SPARKLE_VERSION)/Sparkle-$(SPARKLE_VERSION).tar.xz
 SPARKLE_SHA256  = c0dde519fd2a43ddfc6a1eb76aec284d7d888fe281414f9177de3164d98ba4c7
 
-.PHONY: all clean install uninstall run dmg icons lint setup
+.PHONY: all clean install uninstall run dmg icons lint setup test
 
 all: $(APP_BUNDLE)
 
@@ -80,6 +88,24 @@ dmg: $(APP_BUNDLE)
 		$(BUILD_DIR)/$(DMG_NAME)
 	@rm -rf $(BUILD_DIR)/dmg-staging
 	@echo "✓ Created $(BUILD_DIR)/$(DMG_NAME)"
+
+# --- Test ---
+
+test: $(SPARKLE_DIR)
+	@mkdir -p $(TEST_BUNDLE)/Contents/MacOS
+	swiftc \
+		-F $(XCTEST_FW) -I $(XCTEST_LIB) -L $(XCTEST_LIB) \
+		-framework XCTest -lXCTestSwiftSupport \
+		-framework Cocoa -framework Carbon -framework ServiceManagement \
+		-F Vendor -framework Sparkle \
+		-Xlinker -rpath -Xlinker $(XCTEST_FW) \
+		-Xlinker -rpath -Xlinker $(XCTEST_LIB) \
+		-Xlinker -rpath -Xlinker $(CURDIR)/Vendor \
+		-Xlinker -bundle \
+		-target $(HOST_TARGET) \
+		$(SOURCES_NO_MAIN) $(TESTS) \
+		-o $(TEST_BUNDLE)/Contents/MacOS/Tests
+	xcrun xctest $(TEST_BUNDLE)
 
 # --- Lint ---
 

@@ -1,97 +1,123 @@
 import Foundation
 
+/// Describes the direction of conversion between two keyboard layouts.
 enum ConversionDirection {
-    case englishToRussian
-    case russianToEnglish
+    /// Convert from the first layout to the second (e.g., English → Russian).
+    case layoutAToB
+    /// Convert from the second layout to the first (e.g., Russian → English).
+    case layoutBToA
+    /// Auto-detect direction from text content.
     case auto
+
+    // Backward-compatible aliases
+    static let englishToRussian: ConversionDirection = .layoutAToB
+    static let russianToEnglish: ConversionDirection = .layoutBToA
 }
 
 class LayoutConverter {
 
-    // Complete bidirectional mapping: English QWERTY <-> Russian PC (ЙЦУКЕН)
-    // Based on physical key positions on a standard keyboard
-
-    private static let englishToRussianMap: [Character: Character] = [
-        // Letter row 1 (QWERTY -> ЙЦУКЕН)
-        "q": "й", "w": "ц", "e": "у", "r": "к", "t": "е",
-        "y": "н", "u": "г", "i": "ш", "o": "щ", "p": "з",
-        "[": "х", "]": "ъ",
-
-        // Letter row 2 (ASDF -> ФЫВА)
-        "a": "ф", "s": "ы", "d": "в", "f": "а", "g": "п",
-        "h": "р", "j": "о", "k": "л", "l": "д", ";": "ж",
-        "'": "э",
-
-        // Letter row 3 (ZXCV -> ЯЧСМ)
-        "z": "я", "x": "ч", "c": "с", "v": "м", "b": "и",
-        "n": "т", "m": "ь", ",": "б", ".": "ю", "/": ".",
-
-        // Uppercase letters
-        "Q": "Й", "W": "Ц", "E": "У", "R": "К", "T": "Е",
-        "Y": "Н", "U": "Г", "I": "Ш", "O": "Щ", "P": "З",
-        "{": "Х", "}": "Ъ",
-
-        "A": "Ф", "S": "Ы", "D": "В", "F": "А", "G": "П",
-        "H": "Р", "J": "О", "K": "Л", "L": "Д", ":": "Ж",
-        "\"": "Э",
-
-        "Z": "Я", "X": "Ч", "C": "С", "V": "М", "B": "И",
-        "N": "Т", "M": "Ь", "<": "Б", ">": "Ю", "?": ",",
-
-        // Backtick / tilde -> ё / Ё
-        "`": "ё", "~": "Ё",
-
-        // Shifted number row (Russian PC layout)
-        "@": "\"", "#": "№", "$": ";", "^": ":", "&": "?",
-
-        // Backslash row
-        "|": "/"
-    ]
-
-    // Build reverse map automatically
-    private static let russianToEnglishMap: [Character: Character] = {
-        var map: [Character: Character] = [:]
-        for (en, ru) in englishToRussianMap {
-            map[ru] = en
-        }
-        return map
-    }()
-
-    /// Detect whether text is primarily Latin or Cyrillic
-    static func detectDirection(_ text: String) -> ConversionDirection {
-        var latinCount = 0
-        var cyrillicCount = 0
-
-        for scalar in text.unicodeScalars {
-            let value = scalar.value
-            if (0x0041...0x005A).contains(value) || (0x0061...0x007A).contains(value) {
-                latinCount += 1
-            } else if (0x0400...0x04FF).contains(value) {
-                cyrillicCount += 1
-            }
-        }
-
-        if cyrillicCount > latinCount {
-            return .russianToEnglish
-        }
-        return .englishToRussian
-    }
-
-    /// Convert text between layouts. Returns the converted text and the direction that was applied.
+    /// Convert text between the user's installed keyboard layouts.
+    /// Auto-detects which layout produced the text and converts to the other.
     static func convert(_ text: String, direction: ConversionDirection = .auto) -> (String, ConversionDirection) {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard layouts.count >= 2 else {
+            // Can't convert with fewer than 2 layouts
+            return (text, .auto)
+        }
+
         let resolvedDirection: ConversionDirection
+        let sourceLayout: LayoutInfo
+        let targetLayout: LayoutInfo
+
         switch direction {
         case .auto:
-            resolvedDirection = detectDirection(text)
-        case .englishToRussian, .russianToEnglish:
-            resolvedDirection = direction
+            let detected = detectSourceLayout(text, layouts: layouts)
+            sourceLayout = detected.source
+            targetLayout = detected.target
+            resolvedDirection = detected.direction
+        case .layoutAToB:
+            sourceLayout = layouts[0]
+            targetLayout = layouts[1]
+            resolvedDirection = .layoutAToB
+        case .layoutBToA:
+            sourceLayout = layouts[1]
+            targetLayout = layouts[0]
+            resolvedDirection = .layoutBToA
         }
 
-        let map = resolvedDirection == .englishToRussian ? englishToRussianMap : russianToEnglishMap
-
-        let converted = String(text.map { char in
-            map[char] ?? char
-        })
+        let converted = convertText(text, from: sourceLayout, to: targetLayout)
         return (converted, resolvedDirection)
+    }
+
+    /// Detect which installed layout most likely produced the given text.
+    static func detectDirection(_ text: String) -> ConversionDirection {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard layouts.count >= 2 else { return .auto }
+        let detected = detectSourceLayout(text, layouts: layouts)
+        return detected.direction
+    }
+
+    /// Identify the source layout from text content and determine conversion target.
+    /// For 3+ layouts, uses unique character scoring with a tiebreaker that prefers
+    /// the currently active layout's counterpart.
+    private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo])
+        -> (source: LayoutInfo, target: LayoutInfo, direction: ConversionDirection) {
+
+        // Score each layout: count characters that are UNIQUE to that layout
+        // (i.e., exist in its reverse map but not in others). Unique chars are
+        // stronger signals than shared chars (like digits or common punctuation).
+        var reverseMaps: [(layout: LayoutInfo, map: [Character: KeyMapping])] = []
+        for layout in layouts {
+            reverseMaps.append((layout, KeyboardLayoutMap.buildReverseMap(for: layout)))
+        }
+
+        var scores: [(layout: LayoutInfo, uniqueScore: Int, totalScore: Int)] = []
+        for (i, entry) in reverseMaps.enumerated() {
+            var uniqueScore = 0
+            var totalScore = 0
+            for char in text {
+                guard entry.map[char] != nil else { continue }
+                totalScore += 1
+                // Check if this char is unique to this layout
+                let isUnique = !reverseMaps.enumerated().contains { j, other in
+                    j != i && other.map[char] != nil
+                }
+                if isUnique { uniqueScore += 1 }
+            }
+            scores.append((entry.layout, uniqueScore, totalScore))
+        }
+
+        // Sort by unique score first, then total score as tiebreaker
+        scores.sort { ($0.uniqueScore, $0.totalScore) > ($1.uniqueScore, $1.totalScore) }
+
+        let source = scores[0].layout
+        // Target: the next best layout (not the source)
+        let target = scores.count > 1 ? scores[1].layout : scores[0].layout
+
+        // Determine direction relative to the layout ordering
+        let direction: ConversionDirection
+        if source.id == layouts[0].id {
+            direction = .layoutAToB
+        } else {
+            direction = .layoutBToA
+        }
+
+        return (source, target, direction)
+    }
+
+    /// Convert text from one layout to another via physical key codes.
+    private static func convertText(_ text: String, from source: LayoutInfo, to target: LayoutInfo) -> String {
+        let sourceReverse = KeyboardLayoutMap.buildReverseMap(for: source)
+        let targetForward = KeyboardLayoutMap.buildCharacterMap(for: target)
+
+        return String(text.map { char -> Character in
+            // Find which physical key produces this character in the source layout
+            guard let keyMapping = sourceReverse[char] else {
+                return char // Character not in source layout, pass through
+            }
+            // Look up what that physical key produces in the target layout
+            let targetKey = CharacterMapKey(keyCode: keyMapping.keyCode, shifted: keyMapping.shifted)
+            return targetForward[targetKey] ?? char
+        })
     }
 }

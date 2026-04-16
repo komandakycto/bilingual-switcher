@@ -2,38 +2,23 @@ import Carbon
 
 enum InputSourceSwitcher {
 
-    /// Switch the active keyboard layout to match the target language.
-    /// After converting EN→RU text, switch layout to Russian so the user can keep typing in Russian.
+    /// Switch the active keyboard layout to the target layout (the one we just converted TO).
+    /// Uses the layout pair from KeyboardLayoutMap to determine which layout to activate.
     static func switchTo(direction: ConversionDirection) {
-        let targetLanguage: String
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard layouts.count >= 2 else { return }
+
+        let targetLayout: LayoutInfo
         switch direction {
-        case .englishToRussian:
-            targetLanguage = "ru"
-        case .russianToEnglish:
-            targetLanguage = "en"
+        case .layoutAToB:
+            targetLayout = layouts[1]
+        case .layoutBToA:
+            targetLayout = layouts[0]
         case .auto:
             return
         }
 
-        let filter = [
-            kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource
-        ] as CFDictionary
-
-        guard let sources = TISCreateInputSourceList(filter, false)?
-            .takeRetainedValue() as? [TISInputSource] else {
-            return
-        }
-
-        for source in sources {
-            guard let languagesRef = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) else {
-                continue
-            }
-            let languages = Unmanaged<CFArray>.fromOpaque(languagesRef).takeUnretainedValue() as? [String] ?? []
-
-            if languages.first == targetLanguage {
-                TISSelectInputSource(source)
-                return
-            }
-        }
+        // Activate the target layout's TISInputSource
+        TISSelectInputSource(targetLayout.source)
     }
 }

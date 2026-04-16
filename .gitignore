@@ -7,5 +7,8 @@ DerivedData/
 .build/
 .claude/
 
+# Internal plans and docs
+docs/plans/
+
 # Sparkle framework (download via `make setup`)
 Vendor/
