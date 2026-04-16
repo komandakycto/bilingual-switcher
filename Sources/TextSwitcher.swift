@@ -43,7 +43,18 @@ class TextSwitcher {
             // 4. Convert
             let (converted, direction) = LayoutConverter.convert(text)
 
-            // 5. Paste converted text
+            // 5. Delete selected text, then paste converted text
+            //    In GUI apps Cmd+V replaces the selection, but terminal apps
+            //    (Terminal, iTerm, Claude Code) paste without replacing because
+            //    terminal selection is a visual overlay — the shell input buffer
+            //    doesn't track it.
+            //    Universal fix: Right Arrow deselects and moves cursor to the end
+            //    of the selection (GUI) or is a no-op at end-of-line (terminal),
+            //    then N × Backspace removes exactly the original characters.
+            self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
+            for _ in text {
+                self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
+            }
             pasteboard.clearContents()
             pasteboard.setString(converted, forType: .string)
             self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
