@@ -1,8 +1,10 @@
 APP_NAME     = BilingualSwitcher
 BUNDLE_ID    = com.komandakycto.bilingual-switcher
+VERSION      ?= 1.0.0
 BUILD_DIR    = build
 APP_BUNDLE   = $(BUILD_DIR)/$(APP_NAME).app
 DMG_NAME     = $(APP_NAME).dmg
+ZIP_NAME     = $(APP_NAME).zip
 SOURCES      = $(wildcard Sources/*.swift)
 SPARKLE_DIR  = Vendor/Sparkle.framework
 COMMON_FLAGS = -O \
@@ -26,7 +28,7 @@ SPARKLE_VERSION = 2.9.1
 SPARKLE_URL     = https://github.com/sparkle-project/Sparkle/releases/download/$(SPARKLE_VERSION)/Sparkle-$(SPARKLE_VERSION).tar.xz
 SPARKLE_SHA256  = c0dde519fd2a43ddfc6a1eb76aec284d7d888fe281414f9177de3164d98ba4c7
 
-.PHONY: all clean install uninstall run dmg icons lint setup test test-asan
+.PHONY: all clean install uninstall run dmg zip icons lint setup test test-asan
 
 all: $(APP_BUNDLE)
 
@@ -43,6 +45,8 @@ $(APP_BUNDLE): $(SOURCES) Info.plist Resources/AppIcon.icns Resources/MenuBarIco
 		-output $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
 	@rm -rf $(BUILD_DIR)/arch
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
+	@plutil -replace CFBundleVersion -string "$(VERSION)" $(APP_BUNDLE)/Contents/Info.plist
+	@plutil -replace CFBundleShortVersionString -string "$(VERSION)" $(APP_BUNDLE)/Contents/Info.plist
 	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	@cp Resources/MenuBarIcon.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon.png
 	@cp Resources/MenuBarIcon@2x.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon@2x.png 2>/dev/null || true
@@ -88,6 +92,13 @@ dmg: $(APP_BUNDLE)
 		$(BUILD_DIR)/$(DMG_NAME)
 	@rm -rf $(BUILD_DIR)/dmg-staging
 	@echo "✓ Created $(BUILD_DIR)/$(DMG_NAME)"
+
+# --- ZIP (for Sparkle updates) ---
+
+zip: $(APP_BUNDLE)
+	@rm -f $(BUILD_DIR)/$(ZIP_NAME)
+	cd $(BUILD_DIR) && ditto -c -k --keepParent $(APP_NAME).app $(ZIP_NAME)
+	@echo "✓ Created $(BUILD_DIR)/$(ZIP_NAME)"
 
 # --- Test ---
 
