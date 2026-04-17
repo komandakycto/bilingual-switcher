@@ -19,14 +19,11 @@ jobs:
   semgrep:
     name: Semgrep Security Scan
     runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v4
-      - uses: returntocorp/semgrep-action@v1
-        with:
-          config: >-
-            p/swift
-            p/secrets
-            p/owasp-top-ten
+      - run: semgrep scan --config p/swift --config p/secrets --config p/owasp-top-ten --error
 
   build:
     name: Build
