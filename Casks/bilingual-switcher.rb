@@ -1,8 +1,8 @@
 cask "bilingual-switcher" do
-  version "0.0.1-rc2"
-  sha256 "7477ada415816a2db6aa8bd4c060d5d75a0ff3fcf3345066a4779f2c4069531b"
+  version "1.0.0"
+  sha256 "61a662030ada330614e75c59cd36f7ec20e4037c504f7da7e7def2a51027bcdc"
 
-  url "https://github.com/komandakycto/bilingual-switcher/releases/download/v0.0.1-rc2/BilingualSwitcher.zip"
+  url "https://github.com/komandakycto/bilingual-switcher/releases/download/v1.0.0/BilingualSwitcher.zip"
   name "Bilingual Switcher"
   desc "Convert selected text between keyboard layouts with a hotkey"
   homepage "https://github.com/komandakycto/bilingual-switcher"
