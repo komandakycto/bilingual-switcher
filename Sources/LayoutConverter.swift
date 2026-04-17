@@ -8,10 +8,6 @@ enum ConversionDirection {
     case layoutBToA
     /// Auto-detect direction from text content.
     case auto
-
-    // Backward-compatible aliases
-    static let englishToRussian: ConversionDirection = .layoutAToB
-    static let russianToEnglish: ConversionDirection = .layoutBToA
 }
 
 class LayoutConverter {
@@ -21,7 +17,6 @@ class LayoutConverter {
     static func convert(_ text: String, direction: ConversionDirection = .auto) -> (String, ConversionDirection) {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard layouts.count >= 2 else {
-            // Can't convert with fewer than 2 layouts
             return (text, .auto)
         }
 
@@ -57,9 +52,23 @@ class LayoutConverter {
         return detected.direction
     }
 
-    /// Identify the source layout from text content and determine conversion target.
-    /// For 3+ layouts, uses unique character scoring with a tiebreaker that prefers
-    /// the currently active layout's counterpart.
+    /// Convert text from one layout to another via physical key codes.
+    /// Exposed as internal for testing (avoid duplicating conversion logic in tests).
+    static func convertText(_ text: String, from source: LayoutInfo, to target: LayoutInfo) -> String {
+        let sourceReverse = KeyboardLayoutMap.buildReverseMap(for: source)
+        let targetForward = KeyboardLayoutMap.buildCharacterMap(for: target)
+
+        return String(text.map { char -> Character in
+            guard let keyMapping = sourceReverse[char] else {
+                return char
+            }
+            let targetKey = CharacterMapKey(keyCode: keyMapping.keyCode, shifted: keyMapping.shifted)
+            return targetForward[targetKey] ?? char
+        })
+    }
+
+    // MARK: - Detection
+
     private struct DetectionResult {
         let source: LayoutInfo
         let target: LayoutInfo
@@ -72,22 +81,26 @@ class LayoutConverter {
         let totalScore: Int
     }
 
+    /// Identify the source layout from text content and determine conversion target.
+    /// For 3+ layouts, prefers the currently active layout as target when it differs
+    /// from the detected source.
     private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo]) -> DetectionResult {
+        // Build character sets per layout for O(1) membership checks
+        let layoutCharSets: [(layout: LayoutInfo, chars: Set<Character>)] = layouts.map { layout in
+            let reverseMap = KeyboardLayoutMap.buildReverseMap(for: layout)
+            return (layout, Set(reverseMap.keys))
+        }
 
-        // Score each layout: count characters that are UNIQUE to that layout
-        // (i.e., exist in its reverse map but not in others). Unique chars are
-        // stronger signals than shared chars (like digits or common punctuation).
-        let reverseMaps = layouts.map { (layout: $0, map: KeyboardLayoutMap.buildReverseMap(for: $0)) }
-
+        // Score each layout: unique chars (only in this layout) + total chars
         var scores: [LayoutScore] = []
-        for (index, entry) in reverseMaps.enumerated() {
+        for (index, entry) in layoutCharSets.enumerated() {
             var uniqueScore = 0
             var totalScore = 0
             for char in text {
-                guard entry.map[char] != nil else { continue }
+                guard entry.chars.contains(char) else { continue }
                 totalScore += 1
-                let isUnique = !reverseMaps.enumerated().contains { otherIndex, other in
-                    otherIndex != index && other.map[char] != nil
+                let isUnique = !layoutCharSets.enumerated().contains { otherIndex, other in
+                    otherIndex != index && other.chars.contains(char)
                 }
                 if isUnique { uniqueScore += 1 }
             }
@@ -97,25 +110,18 @@ class LayoutConverter {
         scores.sort { ($0.uniqueScore, $0.totalScore) > ($1.uniqueScore, $1.totalScore) }
 
         let source = scores[0].layout
-        let target = scores.count > 1 ? scores[1].layout : scores[0].layout
+
+        // Target selection: prefer the currently active layout if it differs from source.
+        // This handles 3+ layouts correctly (e.g., EN+RU+FR: if user is typing in RU
+        // and text is detected as EN, target should be RU — the active layout).
+        let target: LayoutInfo
+        if let current = KeyboardLayoutMap.currentLayout(), current.id != source.id {
+            target = current
+        } else {
+            target = scores.count > 1 ? scores[1].layout : source
+        }
 
         let direction: ConversionDirection = source.id == layouts[0].id ? .layoutAToB : .layoutBToA
         return DetectionResult(source: source, target: target, direction: direction)
-    }
-
-    /// Convert text from one layout to another via physical key codes.
-    private static func convertText(_ text: String, from source: LayoutInfo, to target: LayoutInfo) -> String {
-        let sourceReverse = KeyboardLayoutMap.buildReverseMap(for: source)
-        let targetForward = KeyboardLayoutMap.buildCharacterMap(for: target)
-
-        return String(text.map { char -> Character in
-            // Find which physical key produces this character in the source layout
-            guard let keyMapping = sourceReverse[char] else {
-                return char // Character not in source layout, pass through
-            }
-            // Look up what that physical key produces in the target layout
-            let targetKey = CharacterMapKey(keyCode: keyMapping.keyCode, shifted: keyMapping.shifted)
-            return targetForward[targetKey] ?? char
-        })
     }
 }

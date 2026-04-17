@@ -19,22 +19,14 @@ final class MultiLanguageTests: XCTestCase {
               let target = layouts.first(where: { $0.languages.contains(targetLang) }) else {
             return nil
         }
-
-        let sourceReverse = KeyboardLayoutMap.buildReverseMap(for: source)
-        let targetForward = KeyboardLayoutMap.buildCharacterMap(for: target)
-
-        return String(text.map { char -> Character in
-            guard let keyMapping = sourceReverse[char] else { return char }
-            let targetKey = CharacterMapKey(keyCode: keyMapping.keyCode, shifted: keyMapping.shifted)
-            return targetForward[targetKey] ?? char
-        })
+        return LayoutConverter.convertText(text, from: source, to: target)
     }
 
     /// Verify roundtrip conversion between two layouts.
-    private func assertRoundtrip(_ text: String, lang1: String, lang2: String, file: StaticString = #file, line: UInt = #line) {
+    private func assertRoundtrip(_ text: String, lang1: String, lang2: String,
+                                 file: StaticString = #file, line: UInt = #line) throws {
         guard let converted = convertBetween(text: text, from: lang1, to: lang2) else {
-            print("⚠️ Skipping: \(lang1)/\(lang2) layout not installed")
-            return
+            throw XCTSkip("\(lang1)/\(lang2) layout not installed")
         }
         guard let roundtrip = convertBetween(text: converted, from: lang2, to: lang1) else {
             XCTFail("Reverse conversion failed", file: file, line: line)
@@ -47,53 +39,43 @@ final class MultiLanguageTests: XCTestCase {
 
     // MARK: - ES (Spanish) / RU
 
-    func testSpanishRussian_available() {
+    func testSpanishRussian_available() throws {
         guard layoutAvailable(language: "es") else {
-            print("⚠️ Spanish layout not installed, skipping ES/RU tests")
-            return
+            throw XCTSkip("Spanish layout not installed")
         }
-        // Basic letter roundtrip
-        assertRoundtrip("ghbdtn", lang1: "es", lang2: "ru")
+        try assertRoundtrip("ghbdtn", lang1: "es", lang2: "ru")
     }
 
-    func testSpanishRussian_roundtrip() {
+    func testSpanishRussian_roundtrip() throws {
         guard layoutAvailable(language: "es"), layoutAvailable(language: "ru") else {
-            print("⚠️ Spanish or Russian layout not installed, skipping")
-            return
+            throw XCTSkip("Spanish or Russian layout not installed")
         }
-        let testWords = ["hola", "mundo", "prueba"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "es", lang2: "ru")
+        for word in ["hola", "mundo", "prueba"] {
+            try assertRoundtrip(word, lang1: "es", lang2: "ru")
         }
     }
 
     // MARK: - DE (German) / RU
 
-    func testGermanRussian_roundtrip() {
+    func testGermanRussian_roundtrip() throws {
         guard layoutAvailable(language: "de"), layoutAvailable(language: "ru") else {
-            print("⚠️ German or Russian layout not installed, skipping")
-            return
+            throw XCTSkip("German or Russian layout not installed")
         }
-        let testWords = ["hallo", "welt", "test"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "de", lang2: "ru")
+        for word in ["hallo", "welt", "test"] {
+            try assertRoundtrip(word, lang1: "de", lang2: "ru")
         }
     }
 
-    func testGermanRussian_umlauts() {
-        // Find a layout that's specifically German (not ABC which lists "de" generically)
+    func testGermanRussian_umlauts() throws {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard let germanLayout = layouts.first(where: {
             $0.id.lowercased().contains("german") && $0.languages.contains("de")
         }) else {
-            print("⚠️ Dedicated German layout not installed (ABC doesn't have umlauts), skipping")
-            return
+            throw XCTSkip("Dedicated German layout not installed (ABC doesn't have umlauts)")
         }
         guard layoutAvailable(language: "ru") else {
-            print("⚠️ Russian layout not installed, skipping")
-            return
+            throw XCTSkip("Russian layout not installed")
         }
-        // Verify ö, ü, ä can be converted (they exist on dedicated German layout)
         let reverseMap = KeyboardLayoutMap.buildReverseMap(for: germanLayout)
         for umlaut: Character in ["ö", "ü", "ä"] {
             XCTAssertNotNil(reverseMap[umlaut], "German layout should contain '\(umlaut)'")
@@ -102,31 +84,23 @@ final class MultiLanguageTests: XCTestCase {
 
     // MARK: - FR (French) / RU
 
-    func testFrenchRussian_roundtrip() {
+    func testFrenchRussian_roundtrip() throws {
         guard layoutAvailable(language: "fr"), layoutAvailable(language: "ru") else {
-            print("⚠️ French or Russian layout not installed, skipping")
-            return
+            throw XCTSkip("French or Russian layout not installed")
         }
-        let testWords = ["bonjour", "monde", "test"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "fr", lang2: "ru")
+        for word in ["bonjour", "monde", "test"] {
+            try assertRoundtrip(word, lang1: "fr", lang2: "ru")
         }
     }
 
-    func testFrenchLayout_deadKeys() {
+    func testFrenchLayout_deadKeys() throws {
         guard layoutAvailable(language: "fr") else {
-            print("⚠️ French layout not installed, skipping")
-            return
+            throw XCTSkip("French layout not installed")
         }
-        // French layout should produce accented characters via dead keys
         let frenchLayout = KeyboardLayoutMap.installedLayouts().first { $0.languages.contains("fr") }!
         let reverseMap = KeyboardLayoutMap.buildReverseMap(for: frenchLayout)
-        // Check that common French accented chars are reachable
-        let expectedChars: [Character] = ["é", "è"]
-        for char in expectedChars {
-            if reverseMap[char] != nil {
-                // Accented char is in the direct key map — good
-            } else {
+        for char: Character in ["é", "è"] {
+            if reverseMap[char] == nil {
                 print("⚠️ '\(char)' not in French reverse map (may need dead key composition)")
             }
         }
@@ -134,89 +108,75 @@ final class MultiLanguageTests: XCTestCase {
 
     // MARK: - EN / FR
 
-    func testEnglishFrench_roundtrip() {
+    func testEnglishFrench_roundtrip() throws {
         guard layoutAvailable(language: "en"), layoutAvailable(language: "fr") else {
-            print("⚠️ English or French layout not installed, skipping")
-            return
+            throw XCTSkip("English or French layout not installed")
         }
-        let testWords = ["hello", "world", "test"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "en", lang2: "fr")
+        for word in ["hello", "world", "test"] {
+            try assertRoundtrip(word, lang1: "en", lang2: "fr")
         }
     }
 
     // MARK: - EN / DE
 
-    func testEnglishGerman_roundtrip() {
+    func testEnglishGerman_roundtrip() throws {
         guard layoutAvailable(language: "en"), layoutAvailable(language: "de") else {
-            print("⚠️ English or German layout not installed, skipping")
-            return
+            throw XCTSkip("English or German layout not installed")
         }
-        let testWords = ["hello", "world", "keyboard"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "en", lang2: "de")
+        for word in ["hello", "world", "keyboard"] {
+            try assertRoundtrip(word, lang1: "en", lang2: "de")
         }
     }
 
     // MARK: - PT (Portuguese) / EN and PT / RU
 
-    func testPortugueseEnglish_roundtrip() {
+    func testPortugueseEnglish_roundtrip() throws {
         guard layoutAvailable(language: "pt"), layoutAvailable(language: "en") else {
-            print("⚠️ Portuguese or English layout not installed, skipping")
-            return
+            throw XCTSkip("Portuguese or English layout not installed")
         }
-        let testWords = ["hello", "world", "code"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "pt", lang2: "en")
+        for word in ["hello", "world", "code"] {
+            try assertRoundtrip(word, lang1: "pt", lang2: "en")
         }
     }
 
-    func testPortugueseRussian_roundtrip() {
+    func testPortugueseRussian_roundtrip() throws {
         guard layoutAvailable(language: "pt"), layoutAvailable(language: "ru") else {
-            print("⚠️ Portuguese or Russian layout not installed, skipping")
-            return
+            throw XCTSkip("Portuguese or Russian layout not installed")
         }
-        assertRoundtrip("teste", lang1: "pt", lang2: "ru")
+        try assertRoundtrip("teste", lang1: "pt", lang2: "ru")
     }
 
     // MARK: - IT (Italian) / EN and IT / RU
 
-    func testItalianEnglish_roundtrip() {
+    func testItalianEnglish_roundtrip() throws {
         guard layoutAvailable(language: "it"), layoutAvailable(language: "en") else {
-            print("⚠️ Italian or English layout not installed, skipping")
-            return
+            throw XCTSkip("Italian or English layout not installed")
         }
-        let testWords = ["hello", "world", "code"]
-        for word in testWords {
-            assertRoundtrip(word, lang1: "it", lang2: "en")
+        for word in ["hello", "world", "code"] {
+            try assertRoundtrip(word, lang1: "it", lang2: "en")
         }
     }
 
-    func testItalianRussian_roundtrip() {
+    func testItalianRussian_roundtrip() throws {
         guard layoutAvailable(language: "it"), layoutAvailable(language: "ru") else {
-            print("⚠️ Italian or Russian layout not installed, skipping")
-            return
+            throw XCTSkip("Italian or Russian layout not installed")
         }
-        assertRoundtrip("test", lang1: "it", lang2: "ru")
+        try assertRoundtrip("test", lang1: "it", lang2: "ru")
     }
 
     // MARK: - Generic: any two installed layouts should roundtrip
 
-    func testAllInstalledLayouts_roundtrip() {
+    func testAllInstalledLayouts_roundtrip() throws {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard layouts.count >= 2 else {
-            print("⚠️ Fewer than 2 layouts installed, skipping")
-            return
+            throw XCTSkip("Fewer than 2 layouts installed")
         }
 
-        // Test roundtrip between every pair of installed layouts
-        for i in 0..<layouts.count {
-            for j in (i+1)..<layouts.count {
-                let lang1 = layouts[i].languages.first ?? layouts[i].id
-                let lang2 = layouts[j].languages.first ?? layouts[j].id
-
-                // Use basic lowercase letters that exist on most layouts
-                assertRoundtrip("test", lang1: lang1, lang2: lang2)
+        for outer in 0..<layouts.count {
+            for inner in (outer + 1)..<layouts.count {
+                let lang1 = layouts[outer].languages.first ?? layouts[outer].id
+                let lang2 = layouts[inner].languages.first ?? layouts[inner].id
+                try assertRoundtrip("test", lang1: lang1, lang2: lang2)
             }
         }
     }
