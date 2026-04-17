@@ -54,10 +54,19 @@ class LayoutConverter {
     }
 
     /// Detect which installed layout most likely produced the given text.
+    /// Uses the same working-pair logic as convert() for 3+ layouts.
     static func detectDirection(_ text: String) -> ConversionDirection {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard layouts.count >= 2 else { return .auto }
-        let detected = detectSourceLayout(text, layouts: layouts)
+
+        let workingLayouts: [LayoutInfo]
+        if layouts.count > 2, let pair = KeyboardLayoutMap.recentLayoutPair() {
+            workingLayouts = [pair.current, pair.previous]
+        } else {
+            workingLayouts = layouts
+        }
+
+        let detected = detectSourceLayout(text, layouts: workingLayouts)
         return detected.direction
     }
 
