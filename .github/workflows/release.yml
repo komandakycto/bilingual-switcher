@@ -52,41 +52,38 @@ jobs:
         env:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
         run: |
-          # Write key to temp file for sign_update
           KEY_FILE=$(mktemp)
           echo -n "$SPARKLE_EDDSA_KEY" > "$KEY_FILE"
-          SIGNATURE=$(Vendor/bin/sign_update --ed-key-file "$KEY_FILE" build/BilingualSwitcher.zip)
+          # sign_update outputs: sparkle:edSignature="SIG" length="LEN"
+          RAW=$(Vendor/bin/sign_update --ed-key-file "$KEY_FILE" build/BilingualSwitcher.zip)
           rm -f "$KEY_FILE"
-          echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
-          echo "length=$(stat -f%z build/BilingualSwitcher.zip)" >> "$GITHUB_OUTPUT"
-          echo "EdDSA signature: $SIGNATURE"
+          # Parse signature and length from output
+          ED_SIG=$(echo "$RAW" | sed 's/.*sparkle:edSignature="\([^"]*\)".*/\1/')
+          ED_LEN=$(echo "$RAW" | sed 's/.*length="\([^"]*\)".*/\1/')
+          echo "signature=$ED_SIG" >> "$GITHUB_OUTPUT"
+          echo "length=$ED_LEN" >> "$GITHUB_OUTPUT"
+          echo "EdDSA signature: $ED_SIG (length: $ED_LEN)"
 
       - name: Update appcast.xml
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          SIGNATURE="${{ steps.sign.outputs.signature }}"
-          LENGTH=${{ steps.sign.outputs.length }}
+          ED_SIG=${{ steps.sign.outputs.signature }}
+          ED_LEN=${{ steps.sign.outputs.length }}
           URL="https://github.com/komandakycto/bilingual-switcher/releases/download/${GITHUB_REF_NAME}/BilingualSwitcher.zip"
 
-          cat > docs/appcast.xml << EOF
+          cat > docs/appcast.xml << 'XMLEOF'
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
             <channel>
               <title>Bilingual Switcher</title>
               <link>https://github.com/komandakycto/bilingual-switcher</link>
               <language>en</language>
-              <item>
-                <title>Version ${VERSION}</title>
-                <sparkle:version>${VERSION}</sparkle:version>
-                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-                <enclosure url="${URL}"
-                           sparkle:edSignature="${SIGNATURE}"
-                           length="${LENGTH}"
-                           type="application/octet-stream"/>
-              </item>
             </channel>
           </rss>
-          EOF
+          XMLEOF
+
+          # Use sed to insert the item before closing </channel> to avoid heredoc variable issues
+          sed -i '' "s|</channel>|  <item>\n        <title>Version ${VERSION}</title>\n        <sparkle:version>${VERSION}</sparkle:version>\n        <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>\n        <enclosure url=\"${URL}\"\n                   sparkle:edSignature=\"${ED_SIG}\"\n                   length=\"${ED_LEN}\"\n                   type=\"application/octet-stream\"/>\n      </item>\n    </channel>|" docs/appcast.xml
 
       - name: Update Homebrew cask
         run: |
