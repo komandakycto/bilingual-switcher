@@ -14,7 +14,7 @@ COMMON_FLAGS = -O \
                -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 INSTALL_DIR  = /Applications
 
-TESTS          = $(wildcard Tests/*.swift)
+TESTS          = $(filter-out Tests/ASanRunner.swift,$(wildcard Tests/*.swift))
 SOURCES_NO_MAIN = $(filter-out Sources/main.swift,$(SOURCES))
 XCTEST_PLAT    = $(shell xcode-select -p)/Platforms/MacOSX.platform/Developer
 XCTEST_FW      = $(XCTEST_PLAT)/Library/Frameworks
@@ -26,7 +26,7 @@ SPARKLE_VERSION = 2.9.1
 SPARKLE_URL     = https://github.com/sparkle-project/Sparkle/releases/download/$(SPARKLE_VERSION)/Sparkle-$(SPARKLE_VERSION).tar.xz
 SPARKLE_SHA256  = c0dde519fd2a43ddfc6a1eb76aec284d7d888fe281414f9177de3164d98ba4c7
 
-.PHONY: all clean install uninstall run dmg icons lint setup test
+.PHONY: all clean install uninstall run dmg icons lint setup test test-asan
 
 all: $(APP_BUNDLE)
 
@@ -94,6 +94,7 @@ dmg: $(APP_BUNDLE)
 test: $(SPARKLE_DIR)
 	@mkdir -p $(TEST_BUNDLE)/Contents/MacOS
 	swiftc \
+		$(TEST_FLAGS) \
 		-F $(XCTEST_FW) -I $(XCTEST_LIB) -L $(XCTEST_LIB) \
 		-framework XCTest -lXCTestSwiftSupport \
 		-framework Cocoa -framework Carbon -framework ServiceManagement \
@@ -106,6 +107,22 @@ test: $(SPARKLE_DIR)
 		$(SOURCES_NO_MAIN) $(TESTS) \
 		-o $(TEST_BUNDLE)/Contents/MacOS/Tests
 	xcrun xctest $(TEST_BUNDLE)
+
+test-asan: $(SPARKLE_DIR)
+	@mkdir -p $(BUILD_DIR)
+	swiftc \
+		-sanitize=address \
+		-F $(XCTEST_FW) -I $(XCTEST_LIB) -L $(XCTEST_LIB) \
+		-framework XCTest -lXCTestSwiftSupport \
+		-framework Cocoa -framework Carbon -framework ServiceManagement \
+		-F Vendor -framework Sparkle \
+		-Xlinker -rpath -Xlinker $(XCTEST_FW) \
+		-Xlinker -rpath -Xlinker $(XCTEST_LIB) \
+		-Xlinker -rpath -Xlinker $(CURDIR)/Vendor \
+		-target $(HOST_TARGET) \
+		$(SOURCES_NO_MAIN) $(TESTS) Tests/ASanRunner.swift \
+		-o $(BUILD_DIR)/TestRunner-asan
+	$(BUILD_DIR)/TestRunner-asan
 
 # --- Lint ---
 
