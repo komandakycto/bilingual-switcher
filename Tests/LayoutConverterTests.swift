@@ -2,118 +2,143 @@ import XCTest
 
 final class LayoutConverterTests: XCTestCase {
 
+    /// Skip tests that require both English and Russian layouts.
+    private func requireEnRu() throws {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard layouts.count >= 2,
+              layouts.contains(where: { $0.languages.contains("en") }),
+              layouts.contains(where: { $0.languages.contains("ru") }) else {
+            throw XCTSkip("EN+RU layouts required")
+        }
+    }
+
     // MARK: - EN → RU Conversion
 
-    func testEnglishToRussian_ghbdtn() {
+    func testEnglishToRussian_ghbdtn() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("ghbdtn")
-        XCTAssertEqual(result, "привет", "'ghbdtn' should convert to 'привет'")
+        XCTAssertEqual(result, "привет")
     }
 
-    func testEnglishToRussian_ntcn() {
+    func testEnglishToRussian_ntcn() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("ntcn")
-        XCTAssertEqual(result, "тест", "'ntcn' should convert to 'тест'")
+        XCTAssertEqual(result, "тест")
     }
 
-    func testEnglishToRussian_cjkywt() {
+    func testEnglishToRussian_cjkywt() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("cjkywt")
-        XCTAssertEqual(result, "солнце", "'cjkywt' should convert to 'солнце'")
+        XCTAssertEqual(result, "солнце")
     }
 
-    func testEnglishToRussian_cnhjrf() {
+    func testEnglishToRussian_cnhjrf() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("cnhjrf")
-        XCTAssertEqual(result, "строка", "'cnhjrf' should convert to 'строка'")
+        XCTAssertEqual(result, "строка")
     }
 
-    func testEnglishToRussian_ghjdthrf() {
+    func testEnglishToRussian_ghjdthrf() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("ghjdthrf")
-        XCTAssertEqual(result, "проверка", "'ghjdthrf' should convert to 'проверка'")
+        XCTAssertEqual(result, "проверка")
     }
 
     // MARK: - RU → EN Conversion
 
-    func testRussianToEnglish_привет() {
+    func testRussianToEnglish_привет() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("привет")
-        XCTAssertEqual(result, "ghbdtn", "'привет' should convert to 'ghbdtn'")
+        XCTAssertEqual(result, "ghbdtn")
     }
 
-    func testRussianToEnglish_тест() {
+    func testRussianToEnglish_тест() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("тест")
-        XCTAssertEqual(result, "ntcn", "'тест' should convert to 'ntcn'")
+        XCTAssertEqual(result, "ntcn")
     }
 
-    func testRussianToEnglish_строка() {
+    func testRussianToEnglish_строка() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("строка")
-        XCTAssertEqual(result, "cnhjrf", "'строка' should convert to 'cnhjrf'")
+        XCTAssertEqual(result, "cnhjrf")
     }
 
     // MARK: - Auto-Detection
 
-    func testAutoDetection_latinText() {
+    func testAutoDetection_latinText() throws {
+        try requireEnRu()
         let direction = LayoutConverter.detectDirection("hello world")
-        // Latin text should be detected as needing conversion TO a non-Latin layout
         XCTAssertNotEqual(direction, .auto, "Direction should be resolved, not .auto")
     }
 
-    func testAutoDetection_cyrillicText() {
+    func testAutoDetection_cyrillicText() throws {
+        try requireEnRu()
         let direction = LayoutConverter.detectDirection("привет мир")
         XCTAssertNotEqual(direction, .auto, "Direction should be resolved, not .auto")
     }
 
     // MARK: - Mixed / Edge Cases
 
-    func testMixedText_numbersPassThrough() {
+    func testMixedText_numbersPassThrough() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("ntcn123")
-        XCTAssertEqual(result, "тест123", "Numbers should pass through unchanged")
+        XCTAssertEqual(result, "тест123")
     }
 
-    func testMixedText_spacesPassThrough() {
+    func testMixedText_spacesPassThrough() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("ghbdtn vbh")
-        XCTAssertEqual(result, "привет мир", "Spaces should pass through unchanged")
+        XCTAssertEqual(result, "привет мир")
     }
 
     func testEmptyString() {
         let (result, _) = LayoutConverter.convert("")
-        XCTAssertEqual(result, "", "Empty string should return empty string")
+        XCTAssertEqual(result, "")
     }
 
     // MARK: - Uppercase
 
-    func testUppercase_englishToRussian() {
+    func testUppercase_englishToRussian() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("Ghbdtn")
-        XCTAssertEqual(result, "Привет", "'Ghbdtn' should convert to 'Привет'")
+        XCTAssertEqual(result, "Привет")
     }
 
-    func testUppercase_russianToEnglish() {
+    func testUppercase_russianToEnglish() throws {
+        try requireEnRu()
         let (result, _) = LayoutConverter.convert("Привет")
-        XCTAssertEqual(result, "Ghbdtn", "'Привет' should convert to 'Ghbdtn'")
+        XCTAssertEqual(result, "Ghbdtn")
     }
 
     // MARK: - Roundtrip
 
-    func testRoundtrip_englishToRussianAndBack() {
+    func testRoundtrip_englishToRussianAndBack() throws {
+        try requireEnRu()
         let original = "ghbdtn"
         let (russian, _) = LayoutConverter.convert(original)
         let (backToEnglish, _) = LayoutConverter.convert(russian)
-        XCTAssertEqual(backToEnglish, original, "Roundtrip conversion should return original text")
+        XCTAssertEqual(backToEnglish, original)
     }
 
     // MARK: - Detection with multiple layouts
 
-    func testDetection_uniqueCharsPreferred() {
-        // Cyrillic chars are unique to Russian layout → should detect as Russian
+    func testDetection_uniqueCharsPreferred() throws {
+        try requireEnRu()
         let direction = LayoutConverter.detectDirection("привет")
-        XCTAssertEqual(direction, .layoutBToA, "Cyrillic text should detect as layout B (Russian)")
+        XCTAssertEqual(direction, .layoutBToA)
     }
 
-    func testDetection_latinTextDetectsAsLayoutA() {
+    func testDetection_latinTextDetectsAsLayoutA() throws {
+        try requireEnRu()
         let direction = LayoutConverter.detectDirection("hello")
-        XCTAssertEqual(direction, .layoutAToB, "Latin text should detect as layout A (English)")
+        XCTAssertEqual(direction, .layoutAToB)
     }
 
-    // MARK: - Backward Compatibility (all original hardcoded mappings)
+    // MARK: - Backward Compatibility
 
-    /// Verify all lowercase letter mappings match the original hardcoded EN→RU map.
-    func testBackwardCompat_lowercaseLetters() {
+    func testBackwardCompat_lowercaseLetters() throws {
+        try requireEnRu()
         let pairs: [(String, String)] = [
             ("q", "й"), ("w", "ц"), ("e", "у"), ("r", "к"), ("t", "е"),
             ("y", "н"), ("u", "г"), ("i", "ш"), ("o", "щ"), ("p", "з"),
@@ -128,8 +153,8 @@ final class LayoutConverterTests: XCTestCase {
         }
     }
 
-    /// Verify all uppercase letter mappings.
-    func testBackwardCompat_uppercaseLetters() {
+    func testBackwardCompat_uppercaseLetters() throws {
+        try requireEnRu()
         let pairs: [(String, String)] = [
             ("Q", "Й"), ("W", "Ц"), ("E", "У"), ("R", "К"), ("T", "Е"),
             ("Y", "Н"), ("U", "Г"), ("I", "Ш"), ("O", "Щ"), ("P", "З"),
@@ -138,7 +163,6 @@ final class LayoutConverterTests: XCTestCase {
             ("Z", "Я"), ("X", "Ч"), ("C", "С"), ("V", "М"), ("B", "И"),
             ("N", "Т"), ("M", "Ь"),
         ]
-        // Use a full uppercase word to ensure detection goes EN→RU
         for (en, ru) in pairs {
             let (result, _) = LayoutConverter.convert("QQ\(en)")
             let expected = "ЙЙ\(ru)"
@@ -146,9 +170,8 @@ final class LayoutConverterTests: XCTestCase {
         }
     }
 
-    /// Verify punctuation mappings that were in the original hardcoded map.
-    func testBackwardCompat_punctuation() {
-        // These are tested within longer strings to ensure correct auto-detection
+    func testBackwardCompat_punctuation() throws {
+        try requireEnRu()
         let pairs: [(String, String)] = [
             ("[", "х"), ("]", "ъ"),
             (";", "ж"), ("'", "э"),
@@ -156,13 +179,12 @@ final class LayoutConverterTests: XCTestCase {
         ]
         for (en, ru) in pairs {
             let (result, _) = LayoutConverter.convert("ghbdtn\(en)")
-            let expected = "привет\(ru)"
-            XCTAssertEqual(result, expected, "Punctuation '\(en)' should convert to '\(ru)'")
+            XCTAssertEqual(result, "привет\(ru)", "'\(en)' should convert to '\(ru)'")
         }
     }
 
-    /// Verify shifted punctuation / bracket mappings.
-    func testBackwardCompat_shiftedPunctuation() {
+    func testBackwardCompat_shiftedPunctuation() throws {
+        try requireEnRu()
         let pairs: [(String, String)] = [
             ("{", "Х"), ("}", "Ъ"),
             (":", "Ж"), ("\"", "Э"),
@@ -170,47 +192,38 @@ final class LayoutConverterTests: XCTestCase {
         ]
         for (en, ru) in pairs {
             let (result, _) = LayoutConverter.convert("GHBDTN\(en)")
-            let expected = "ПРИВЕТ\(ru)"
-            XCTAssertEqual(result, expected, "Shifted punctuation '\(en)' should convert to '\(ru)'")
+            XCTAssertEqual(result, "ПРИВЕТ\(ru)", "'\(en)' should convert to '\(ru)'")
         }
     }
 
-    /// Verify backtick/tilde convert to something (exact mapping depends on Russian layout variant).
-    /// On "Russian" layout: ` → ё, ~ → Ё. On "Russian - PC": ` → ], ~ → [.
-    func testBackwardCompat_backtickTilde() {
+    func testBackwardCompat_backtickTilde() throws {
+        try requireEnRu()
         let (result1, _) = LayoutConverter.convert("ghbdtn`")
         XCTAssertTrue(result1.hasPrefix("привет"), "Letter portion should convert")
-        XCTAssertNotEqual(result1, "ghbdtn`", "Backtick should be converted, not passed through")
+        XCTAssertNotEqual(result1, "ghbdtn`", "Backtick should be converted")
 
-        // Roundtrip should work regardless of variant
         let (converted, _) = LayoutConverter.convert("ghbdtn`")
         let (roundtrip, _) = LayoutConverter.convert(converted)
         XCTAssertEqual(roundtrip, "ghbdtn`", "Backtick roundtrip should work")
     }
 
-    /// Verify shifted number row / punctuation are converted (not passed through).
-    /// Note: exact mappings depend on the installed Russian layout variant
-    /// (Russian vs Russian-PC have different shifted number rows).
-    /// The dynamic approach correctly uses whatever variant is installed.
-    func testBackwardCompat_shiftedNumberRowConverts() {
-        // These should convert to SOMETHING (not pass through unchanged),
-        // proving the physical key mapping works for shifted number row
+    func testBackwardCompat_shiftedNumberRowConverts() throws {
+        try requireEnRu()
         let symbols = ["@", "#", "$", "^", "&"]
         for sym in symbols {
             let (result, _) = LayoutConverter.convert("ghbdtn\(sym)")
             let prefix = String(result.prefix(6))
-            XCTAssertEqual(prefix, "привет", "Letter portion should convert correctly with '\(sym)' appended")
+            XCTAssertEqual(prefix, "привет", "Letter portion should convert with '\(sym)' appended")
         }
     }
 
-    /// Verify roundtrip for punctuation characters.
-    /// This confirms the dynamic mapping is self-consistent regardless of layout variant.
-    func testBackwardCompat_punctuationRoundtrip() {
+    func testBackwardCompat_punctuationRoundtrip() throws {
+        try requireEnRu()
         let testStrings = ["ghbdtn/", "ghbdtn|", "GHBDTN?"]
         for original in testStrings {
             let (converted, _) = LayoutConverter.convert(original)
             let (roundtrip, _) = LayoutConverter.convert(converted)
-            XCTAssertEqual(roundtrip, original, "Roundtrip should return original for '\(original)'")
+            XCTAssertEqual(roundtrip, original, "Roundtrip for '\(original)'")
         }
     }
 }

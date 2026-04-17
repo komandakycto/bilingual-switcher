@@ -58,6 +58,13 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
+      - name: Enable Russian keyboard layout
+        run: |
+          # Add Russian keyboard layout so conversion tests can run
+          defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add \
+            '{ "Bundle ID" = "com.apple.inputmethod.EmojiFunctionRowItem"; InputSourceKind = "Non Keyboard Input Method"; }' \
+            '{ "InputSourceKind" = "Keyboard Layout"; "KeyboardLayout ID" = 19456; "KeyboardLayout Name" = "Russian"; }'
+
       - name: Download Sparkle
         run: make setup
 
@@ -72,6 +79,11 @@ jobs:
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Enable Russian keyboard layout
+        run: |
+          defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add \
+            '{ "InputSourceKind" = "Keyboard Layout"; "KeyboardLayout ID" = 19456; "KeyboardLayout Name" = "Russian"; }'
 
       - name: Download Sparkle
         run: make setup
