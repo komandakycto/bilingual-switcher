@@ -92,6 +92,10 @@ class LayoutConverter {
 
     /// Identify the source layout from text content and determine conversion target.
     /// Expects a working pair (already narrowed to 2 layouts for the 3+ case).
+    ///
+    /// When scores are tied (common for same-script pairs like EN↔FR where "hello"
+    /// scores equally for both), the currently active layout is assumed to be the source.
+    /// Rationale: the user is typing in the active layout and wants to convert to the other.
     private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo]) -> DetectionResult {
         // Build character sets per layout for O(1) membership checks
         let layoutCharSets: [(layout: LayoutInfo, chars: Set<Character>)] = layouts.map { layout in
@@ -117,8 +121,25 @@ class LayoutConverter {
 
         scores.sort { ($0.uniqueScore, $0.totalScore) > ($1.uniqueScore, $1.totalScore) }
 
-        let source = scores[0].layout
-        let target = scores.count > 1 ? scores[1].layout : source
+        var source = scores[0].layout
+
+        // Tie-break: when scores are equal (same-script pairs), the currently active
+        // layout is the one the user is typing in — that's the source they want to
+        // convert FROM. Without this, the sort picks an arbitrary winner.
+        if scores.count >= 2,
+           scores[0].uniqueScore == scores[1].uniqueScore,
+           scores[0].totalScore == scores[1].totalScore,
+           let current = KeyboardLayoutMap.currentLayout(),
+           layouts.contains(where: { $0.id == current.id }) {
+            source = current
+        }
+
+        let target: LayoutInfo
+        if let other = layouts.first(where: { $0.id != source.id }) {
+            target = other
+        } else {
+            target = source
+        }
 
         let direction: ConversionDirection = source.id == layouts[0].id ? .layoutAToB : .layoutBToA
         return DetectionResult(source: source, target: target, direction: direction)

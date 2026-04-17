@@ -26,6 +26,7 @@ struct KeyMapping {
 class KeyboardLayoutMap {
 
     private static let lock = NSLock()
+    private static let recentLayoutKey = "recentLayoutIDs"
 
     /// Cached character maps keyed by layout ID.
     private static var characterMapCache: [String: [CharacterMapKey: Character]] = [:]
@@ -35,8 +36,10 @@ class KeyboardLayoutMap {
     private static var layoutCache: [LayoutInfo]?
 
     /// The two most recently active layout IDs (newest first).
-    /// Tracked via layout-switch notifications so we know the user's working pair.
-    private static var recentLayoutIDs: [String] = []
+    /// Persisted to UserDefaults so the pair survives app restarts.
+    private static var recentLayoutIDs: [String] = {
+        UserDefaults.standard.stringArray(forKey: recentLayoutKey) ?? []
+    }()
 
     /// Shift modifier state for UCKeyTranslate: (shiftKey >> 8) & 0xFF.
     private static let shiftModifier: UInt32 = (UInt32(shiftKey) >> 8) & 0xFF
@@ -74,7 +77,6 @@ class KeyboardLayoutMap {
                 languages = Unmanaged<CFArray>.fromOpaque(langRef).takeUnretainedValue() as? [String] ?? []
             }
 
-            // Only include layouts that have UCKeyboardLayout data
             guard TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) != nil else {
                 return nil
             }
@@ -95,7 +97,7 @@ class KeyboardLayoutMap {
     }
 
     /// Returns the two most recently used layouts (newest first).
-    /// Falls back to the first two installed layouts if history isn't available yet.
+    /// Persisted to UserDefaults so the pair is correct even right after launch.
     static func recentLayoutPair() -> (current: LayoutInfo, previous: LayoutInfo)? {
         let layouts = installedLayouts()
         guard layouts.count >= 2 else { return nil }
@@ -104,29 +106,21 @@ class KeyboardLayoutMap {
         let recent = recentLayoutIDs
         lock.unlock()
 
-        let current: LayoutInfo
-        let previous: LayoutInfo
-
         if recent.count >= 2,
            let curr = layouts.first(where: { $0.id == recent[0] }),
            let prev = layouts.first(where: { $0.id == recent[1] }) {
-            current = curr
-            previous = prev
-        } else {
-            // Not enough history — fall back to current + first different installed layout
-            if let curr = currentLayout(), let other = layouts.first(where: { $0.id != curr.id }) {
-                current = curr
-                previous = other
-            } else {
-                current = layouts[0]
-                previous = layouts[1]
-            }
+            return (curr, prev)
         }
 
-        return (current, previous)
+        // Not enough persisted history — fall back to current + first different layout.
+        // This only happens on the very first launch with 3+ layouts.
+        if let curr = currentLayout(), let other = layouts.first(where: { $0.id != curr.id }) {
+            return (curr, other)
+        }
+        return (layouts[0], layouts[1])
     }
 
-    /// Record a layout switch in the recent history.
+    /// Record a layout switch in the recent history and persist to UserDefaults.
     private static func recordLayoutSwitch() {
         guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
               let idRef = TISGetInputSourceProperty(current, kTISPropertyInputSourceID) else { return }
@@ -141,6 +135,7 @@ class KeyboardLayoutMap {
             if recentLayoutIDs.count > 2 {
                 recentLayoutIDs.removeLast(recentLayoutIDs.count - 2)
             }
+            UserDefaults.standard.set(recentLayoutIDs, forKey: recentLayoutKey)
         }
         lock.unlock()
     }
@@ -148,6 +143,7 @@ class KeyboardLayoutMap {
     // MARK: - Character Map Building
 
     /// Builds a map from (keyCode, shifted) → Character for the given layout.
+    /// Includes both direct keys and dead-key compositions.
     static func buildCharacterMap(for layout: LayoutInfo) -> [CharacterMapKey: Character] {
         lock.lock()
         if let cached = characterMapCache[layout.id] { lock.unlock(); return cached }
@@ -161,7 +157,7 @@ class KeyboardLayoutMap {
 
         var map: [CharacterMapKey: Character] = [:]
 
-        // Iterate all standard key codes (0–127 covers all physical keys)
+        // Pass 1: direct key mappings (0–127, unshifted + shifted)
         for keyCode: UInt16 in 0...127 {
             if let char = translateKey(keyCode: keyCode, shift: false, layoutData: layoutData, keyboardType: keyboardType) {
                 map[CharacterMapKey(keyCode: keyCode, shifted: false)] = char
@@ -171,21 +167,9 @@ class KeyboardLayoutMap {
             }
         }
 
-        // Handle dead keys: try combining with all main keyboard keys (0–50)
-        for keyCode: UInt16 in 0...127 {
-            for shift in [false, true] {
-                if let composed = translateDeadKey(deadKeyCode: keyCode, shift: shift,
-                                                   layoutData: layoutData,
-                                                   keyboardType: keyboardType) {
-                    for result in composed {
-                        let key = CharacterMapKey(keyCode: keyCode, shifted: shift)
-                        if map[key] == nil {
-                            map[key] = result.character
-                        }
-                    }
-                }
-            }
-        }
+        // Dead-key composed characters (é, ñ, ê, etc.) are added in buildReverseMap
+        // rather than the forward map, since they require a two-key sequence that
+        // doesn't fit the (keyCode, shifted) → Character model.
 
         lock.lock()
         characterMapCache[layout.id] = map
@@ -193,7 +177,25 @@ class KeyboardLayoutMap {
         return map
     }
 
+    /// Insert a key mapping into a reverse map, preferring main keyboard keys and unshifted.
+    private static func insertPreferring(
+        _ mapping: KeyMapping, for char: Character, into reverse: inout [Character: KeyMapping]
+    ) {
+        guard let existing = reverse[char] else {
+            reverse[char] = mapping
+            return
+        }
+        let existingIsMain = existing.keyCode <= 50
+        let newIsMain = mapping.keyCode <= 50
+        if newIsMain && !existingIsMain {
+            reverse[char] = mapping
+        } else if newIsMain == existingIsMain && !mapping.shifted && existing.shifted {
+            reverse[char] = mapping
+        }
+    }
+
     /// Builds a reverse map: Character → KeyMapping for the given layout.
+    /// Includes dead-key composed characters so they can be detected and converted.
     static func buildReverseMap(for layout: LayoutInfo) -> [Character: KeyMapping] {
         lock.lock()
         if let cached = reverseMapCache[layout.id] { lock.unlock(); return cached }
@@ -201,26 +203,42 @@ class KeyboardLayoutMap {
 
         let charMap = buildCharacterMap(for: layout)
         var reverse: [Character: KeyMapping] = [:]
+
+        // Add direct key mappings
         for (key, char) in charMap {
-            if let existing = reverse[char] {
-                // Prefer main keyboard (key codes 0–50) over numpad/function keys,
-                // and prefer unshifted over shifted within the same priority.
-                let existingIsMain = existing.keyCode <= 50
-                let newIsMain = key.keyCode <= 50
-                if newIsMain && !existingIsMain {
-                    reverse[char] = KeyMapping(keyCode: key.keyCode, shifted: key.shifted)
-                } else if newIsMain == existingIsMain && !key.shifted && existing.shifted {
-                    reverse[char] = KeyMapping(keyCode: key.keyCode, shifted: key.shifted)
-                }
-            } else {
-                reverse[char] = KeyMapping(keyCode: key.keyCode, shifted: key.shifted)
-            }
+            insertPreferring(KeyMapping(keyCode: key.keyCode, shifted: key.shifted), for: char, into: &reverse)
         }
+
+        addDeadKeyCompositions(for: layout, into: &reverse)
 
         lock.lock()
         reverseMapCache[layout.id] = reverse
         lock.unlock()
         return reverse
+    }
+
+    /// Add dead-key composed characters (é, ñ, ê, etc.) to the reverse map.
+    /// Maps each composed char to its BASE key code so conversion can find it.
+    private static func addDeadKeyCompositions(for layout: LayoutInfo, into reverse: inout [Character: KeyMapping]) {
+        guard let dataRef = TISGetInputSourceProperty(layout.source, kTISPropertyUnicodeKeyLayoutData) else {
+            return
+        }
+        let layoutData = Unmanaged<CFData>.fromOpaque(dataRef).takeUnretainedValue() as Data
+        let keyboardType = UInt32(LMGetKbdType())
+
+        for deadKeyCode: UInt16 in 0...127 {
+            for deadShift in [false, true] {
+                guard let composed = translateDeadKey(deadKeyCode: deadKeyCode, shift: deadShift,
+                                                     layoutData: layoutData,
+                                                     keyboardType: keyboardType) else { continue }
+                for result in composed where reverse[result.character] == nil {
+                    reverse[result.character] = KeyMapping(
+                        keyCode: result.baseKeyCode,
+                        shifted: result.baseShifted
+                    )
+                }
+            }
+        }
     }
 
     /// Invalidate all caches (call when enabled layouts change).
@@ -246,7 +264,6 @@ class KeyboardLayoutMap {
         }
 
         // Track layout switches (Cmd+Space etc.) to maintain the recent pair.
-        // This does NOT invalidate caches — just records which layouts the user uses.
         center.addObserver(
             forName: .init("com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged"),
             object: nil,
@@ -261,7 +278,6 @@ class KeyboardLayoutMap {
 
     // MARK: - UCKeyTranslate Helpers
 
-    /// Translate a single key code to a character using UCKeyTranslate.
     private static func translateKey(keyCode: UInt16, shift: Bool,
                                      layoutData: Data, keyboardType: UInt32) -> Character? {
         let modifierState: UInt32 = shift ? shiftModifier : 0
@@ -310,7 +326,6 @@ class KeyboardLayoutMap {
         var chars = [UniChar](repeating: 0, count: maxLength)
         var actualLength: Int = 0
 
-        // First press: check if this produces a dead key state
         let result1 = layoutData.withUnsafeBytes { rawBuffer -> OSStatus in
             guard let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
                 return errSecParam
@@ -331,7 +346,6 @@ class KeyboardLayoutMap {
 
         guard result1 == noErr, deadKeyState != 0 else { return nil }
 
-        // This is a dead key — try combining with main keyboard keys
         var results: [DeadKeyResult] = []
         let savedDeadState = deadKeyState
 
