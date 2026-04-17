@@ -1,14 +1,27 @@
+# Build artifacts
 build/
+*.dSYM/
+
+# Dependencies (download via `make setup`)
+Vendor/
+
+# macOS
 .DS_Store
+
+# Editors / IDEs
 *.swp
 *~
 xcuserdata/
 DerivedData/
+*.xcodeproj
+*.xcworkspace
 .build/
+.swiftpm/
+.vscode/
+.idea/
+
+# Claude Code
 .claude/
 
-# Internal plans and docs
+# Internal plans
 docs/plans/
-
-# Sparkle framework (download via `make setup`)
-Vendor/

@@ -1,253 +1,321 @@
-# Project Audit: Bilingual Switcher v1.0.0
+# Pre-Release Audit: Bilingual Switcher
 
-**Date:** 2026-04-14
-**Scope:** Full pre-release code review — Swift best practices, Apple guidelines, code quality
+Date: 2026-04-14
 
-## Overall Impression
+Scope: first public GitHub release readiness, Swift best practices, macOS/AppKit conventions, Apple distribution requirements, and repository hygiene.
 
-Clean, focused, well-structured ~900 LOC menu bar app. Good separation of concerns across 8 source files. For a first release this is solid work. Issues below are ranked by severity.
+Verdict: not ready for a first public release yet. The codebase is small and readable, `make lint`, `make`, `make dmg`, and `plutil -lint Info.plist` all pass, but the current release pipeline and a few core UX paths still need work.
 
----
+## Verified Checks
 
-## CRITICAL — Fix Before Release
+- `make lint` passed with `swiftlint --strict`.
+- `make` produced `build/BilingualSwitcher.app`.
+- `make dmg` produced `build/BilingualSwitcher.dmg`.
+- `plutil -lint Info.plist` passed.
+- The built app binary is single-architecture on the build host. In this environment it was `x86_64` only.
+- `Vendor/Sparkle.framework` is universal (`x86_64` + `arm64`).
+- No unit tests or UI tests are present in the repository.
 
-### 1. Latin range detection includes non-letter characters
+## What Is Already Good
 
-**File:** `Sources/LayoutConverter.swift:66`
+- Source organization is clean for an early-stage menu bar app. Responsibilities are separated into hotkey handling, layout conversion, input-source switching, windows, and app lifecycle.
+- SwiftLint is configured and the current source passes strict linting.
+- The app uses public macOS frameworks only: `AppKit`, `Carbon`, `ServiceManagement`, `UserNotifications`, and `Sparkle`.
+- `LSUIElement` is correctly set for a menu bar utility, and the app uses `NSStatusItem` rather than custom hacks.
+- The `NSApp.activate()` availability check in [Sources/AppDelegate.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AppDelegate.swift:137) shows some attention to newer AppKit APIs.
+- The input-source query is already filtered to keyboard sources in [Sources/InputSourceSwitcher.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/InputSourceSwitcher.swift:18).
 
-```swift
-if (0x0041...0x007A).contains(scalar.value) // Basic Latin letters
-```
+## Release Blockers
 
-This range `0x0041–0x007A` includes `[\]^_\`` (codes 0x5B–0x60) which are punctuation, not letters. This will miscount punctuation as Latin characters, skewing auto-detection.
+### 1. Direct-distribution signing and notarization are not set up
 
-**Fix:** Use two ranges `(0x0041...0x005A)` (A-Z) and `(0x0061...0x007A)` (a-z), or use `scalar.properties.isAlphabetic`.
+Evidence:
 
-### 2. Clipboard restore races with paste
+- [Makefile](/Users/leonidkorsakov/work/biligual-switcher/Makefile:36) signs the app with `codesign --force --deep --sign -`, which is ad-hoc signing.
+- The built app reports `Signature=adhoc` and no team identifier.
+- [Makefile](/Users/leonidkorsakov/work/biligual-switcher/Makefile:71) creates a DMG, but the DMG is not signed, notarized, or stapled.
+- [README.md](/Users/leonidkorsakov/work/biligual-switcher/README.md:40) already warns that the app is not notarized.
 
-**File:** `Sources/TextSwitcher.swift:58`
+Impact:
 
-The 200ms delay before restoring the clipboard is a heuristic. On slower machines or when the target app has paste latency (e.g., Electron apps, browsers with heavy JS), the clipboard can be restored before the app finishes reading it. There's no guaranteed solution, but 200ms is on the low side.
+- This is below the bar for a polished first public macOS release.
+- Users will hit Gatekeeper friction.
+- Sparkle-based updates are much harder to trust and operate cleanly without a proper signing pipeline.
 
-**Suggestion:** Bump to 300–500ms. Consider making this configurable in a future version. This is a known limitation of the clipboard-based approach — document it.
+Recommendation:
 
-### 3. Missing character mappings
+- Move to Developer ID signing.
+- Enable Hardened Runtime.
+- Sign the app and the outer DMG.
+- Notarize the outer DMG and staple it.
+- Test the final artifact on a clean machine, both before and after moving it to `/Applications`.
 
-**File:** `Sources/LayoutConverter.swift:44-48`
+### 2. Release architecture is host-dependent
 
-The shifted number row mapping is incomplete:
+Evidence:
 
-| Key         | English | Russian | Status  |
-|-------------|---------|---------|---------|
-| Shift+1     | `!`     | `!`     | Missing |
-| Shift+5     | `%`     | `%`     | Missing |
-| Shift+8     | `*`     | `*`     | Missing |
-| Shift+9     | `(`     | `(`     | Missing |
-| Shift+0     | `)`     | `)`     | Missing |
+- [Makefile](/Users/leonidkorsakov/work/biligual-switcher/Makefile:27) invokes `swiftc` without an explicit multi-arch target or universal build step.
+- The app built in this environment is `Mach-O 64-bit executable x86_64`.
+- GitHub Actions uses `macos-14` in [.github/workflows/ci.yml](/Users/leonidkorsakov/work/biligual-switcher/.github/workflows/ci.yml:17), which typically means the CI artifact will be built on Apple Silicon instead.
 
-Users typing numbers with Shift will get inconsistent conversion.
+Impact:
 
----
+- Your release artifact depends on where it was built.
+- A local Intel build is not the same product as a CI Apple Silicon build.
+- If you advertise `macOS 13+` without an architecture note, users will reasonably expect support across both Intel and Apple Silicon Macs that run Ventura or newer.
 
-## HIGH — Should Fix Before Release
+Recommendation:
 
-### 4. `setupMenuBar()` is not `private`
+- Ship a universal app, or explicitly declare the release as `arm64`-only.
+- If you keep direct `swiftc` builds, build both architectures and merge with `lipo`, or move release builds to a more standard Xcode archive/export path.
 
-**File:** `Sources/AppDelegate.swift:34`
+### 3. The privacy story conflicts with the updater behavior
 
-```swift
-func setupMenuBar() {
-```
+Evidence:
 
-Called from `showPreferences` callback to refresh hotkey display, which is fine. But it should be `private` — all other helper methods in `AppDelegate` are already `private`.
+- [README.md](/Users/leonidkorsakov/work/biligual-switcher/README.md:25) says the app runs with “no network access”.
+- [Sources/AppDelegate.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AppDelegate.swift:16) starts `SPUStandardUpdaterController` on launch.
+- [Info.plist](/Users/leonidkorsakov/work/biligual-switcher/Info.plist:21) sets `SUFeedURL`.
+- [Info.plist](/Users/leonidkorsakov/work/biligual-switcher/Info.plist:23) enables automatic update checks.
+- The repository does not contain an `appcast.xml` or a documented release publishing flow for Sparkle.
 
-### 5. Force-unwrap on System Preferences URL
+Impact:
 
-**File:** `Sources/AppDelegate.swift:124-125`
+- The current README overpromises on privacy and network behavior.
+- For a public release, inaccurate privacy language is a trust problem.
+- The updater feature is not self-documented well enough for contributors or future maintainers.
 
-```swift
-let url = URL(
-    string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-)!
-```
+Recommendation:
 
-Force-unwrap on a string literal URL is technically safe (the string is constant), but Apple's URL scheme changed between macOS versions. Consider adding a `guard let` for defensive coding.
+- Pick one of these paths before release:
+- Disable Sparkle until the appcast and signing pipeline are ready.
+- Keep Sparkle, but update the README to explain exactly what network access occurs, when it occurs, and what data is not collected.
+- Document the release process for publishing the appcast and signing update archives.
 
-### 6. `globalHotkeyCallback` global mutable state is not thread-safe
+### 4. Global hotkey registration failures are silent to the user
 
-**File:** `Sources/HotkeyManager.swift:5`
+Evidence:
 
-```swift
-private var globalHotkeyCallback: (() -> Void)?
-```
+- [Sources/HotkeyManager.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/HotkeyManager.swift:50) checks the return value of `RegisterEventHotKey`.
+- On failure, [Sources/HotkeyManager.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/HotkeyManager.swift:60) only logs to `NSLog`.
+- [Sources/PreferencesWindow.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/PreferencesWindow.swift:126) always saves the shortcut and closes the window.
 
-This global is set from the main thread in `register()` and read from the Carbon event handler. Carbon event handlers are typically dispatched on the main thread for `GetApplicationEventTarget()`, so this is probably fine in practice, but it's not formally guaranteed. If you ever support multiple instances, this is a data race.
+Impact:
 
-### 7. `ConversionDirection.auto` case handled redundantly
+- A user can choose a reserved or conflicting shortcut and think the app is broken.
+- This affects the app’s primary feature.
 
-**File:** `Sources/LayoutConverter.swift:93-95`
+Recommendation:
 
-```swift
-case .auto:
-    map = englishToRussianMap
-```
+- Make `register()` return a result or throw.
+- Validate the shortcut before dismissing preferences.
+- If registration fails, restore the previous shortcut and show a visible error message.
 
-`.auto` should never reach this branch because it's resolved at line 83-86. This dead code silently defaults to EN→RU, which could mask bugs. Replace with a `fatalError("unreachable")` or restructure the code to make the exhaustive switch impossible.
+## High-Priority Improvements
 
-### 8. No `NSAccessibilityUsageDescription` in Info.plist
+### 5. There are no automated tests for the core product logic
 
-The app reads and modifies text via Accessibility APIs and CGEvents but does not declare `NSAccessibilityUsageDescription` in its Info.plist. While not strictly required for consuming Accessibility (you're the client, not the provider), Apple reviewers may look for it if you ever submit to the App Store. For direct distribution this is fine, but worth noting.
+Evidence:
 
----
+- The repo has no `Tests` directory, no XCTest target, and no package or Xcode test configuration.
+- `LayoutConverter` in [Sources/LayoutConverter.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/LayoutConverter.swift:9) is pure logic and is ideal for table-driven tests.
 
-## MEDIUM — Improve Code Quality
+Impact:
 
-### 9. Frame-based layout throughout UI
+- Mapping regressions and direction-detection mistakes will only be caught manually.
+- That is risky for the app’s central feature.
 
-**Files:** `Sources/PreferencesWindow.swift`, `Sources/AboutWindow.swift`
+Recommendation:
 
-All UI uses hardcoded frames (`NSRect(x: 20, y: 260, width: 200, height: 20)`). This:
+- Add unit tests for:
+- known conversion examples from the README
+- punctuation and mixed-script inputs
+- detection behavior for Latin, Cyrillic, and ambiguous text
+- preference defaults and hotkey formatting helpers
 
-- Breaks if system font size changes (Accessibility > larger text)
-- Doesn't adapt to localized strings of different lengths
-- Makes future UI changes tedious
+### 6. Input-source switching chooses by language only, not by the exact layout the app promises
 
-For a v1 menu bar utility this is acceptable, but Auto Layout or `NSStackView` would be more robust. Not blocking for release.
+Evidence:
 
-### 10. `restoreClipboard` calls `writeObjects` per item inside a loop
+- [Sources/InputSourceSwitcher.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/InputSourceSwitcher.swift:33) switches on `languages.first == targetLanguage`.
+- The app description in [README.md](/Users/leonidkorsakov/work/biligual-switcher/README.md:78) says conversion is based on the Russian PC layout.
 
-**File:** `Sources/TextSwitcher.swift:69-75`
+Impact:
 
-```swift
-for itemDict in items {
-    let item = NSPasteboardItem()
-    for (type, data) in itemDict {
-        item.setData(data, forType: type)
-    }
-    pasteboard.writeObjects([item])
-}
-```
+- If a user has multiple English or Russian input sources installed, the app may switch to the wrong one.
+- The conversion logic and the active keyboard layout can drift out of sync.
 
-Each `writeObjects` call increments `changeCount`. If the original clipboard had multiple items, this calls `writeObjects` N times. Should collect all items first, then call `writeObjects` once:
+Recommendation:
 
-```swift
-let pasteboardItems = items.map { itemDict -> NSPasteboardItem in
-    let item = NSPasteboardItem()
-    for (type, data) in itemDict { item.setData(data, forType: type) }
-    return item
-}
-pasteboard.writeObjects(pasteboardItems)
-```
+- Match a specific input-source identifier instead of only a language code.
+- If you want flexibility, let the user choose which English and Russian layouts should be paired.
 
-### 11. `TISCreateInputSourceList` returns all input sources unfiltered
+### 7. Launch-at-login handling is too optimistic for `SMAppService`
 
-**File:** `Sources/InputSourceSwitcher.swift:18`
+Evidence:
 
-```swift
-guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource]
-```
+- [Sources/PreferencesWindow.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/PreferencesWindow.swift:257) reduces launch-at-login to a simple enabled boolean.
+- [Sources/PreferencesWindow.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/PreferencesWindow.swift:263) catches errors only by logging.
+- Apple’s `SMAppService.Status` includes states like `requiresApproval`, not just enabled or disabled.
 
-Passing `nil` as the filter dictionary returns all input sources. You should filter to only keyboard input sources:
+Impact:
 
-```swift
-let filter = [kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource] as CFDictionary
-```
+- The checkbox can fail to reflect the actual system state.
+- Users may need to approve the background item in System Settings and will not get actionable guidance.
 
-This removes the need for the manual category check on lines 23-28 and is more efficient.
+Recommendation:
 
-### 12. `activate(ignoringOtherApps:)` is deprecated on macOS 14+
+- Handle `status` explicitly.
+- When the state is `requiresApproval`, explain what happened and offer to open System Settings.
+- Consider using `SMAppService.openSystemSettingsLoginItems()` as the remediation path.
 
-**File:** `Sources/AppDelegate.swift:146,154`
+### 8. The Accessibility-permission fallback notification may never be shown
 
-```swift
-NSApp.activate(ignoringOtherApps: true)
-```
+Evidence:
 
-Deprecated since macOS 14. Use `NSApp.activate()` on macOS 14+ or `NSApp.yieldActivation(toApplicationWithBundleIdentifier:)`. Since you target macOS 13+, you'd need an availability check.
+- [Sources/TextSwitcher.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/TextSwitcher.swift:97) schedules a local notification when Accessibility access is missing.
+- The app never calls `UNUserNotificationCenter.requestAuthorization`.
 
-### 13. Sparkle `tar xf` extracts more than needed
+Impact:
 
-**File:** `Makefile:91`
+- A user can press the hotkey and get no visible feedback.
+- The fallback depends on notification permission that the app never asks for.
 
-```makefile
-@tar xf Vendor/Sparkle.tar.xz -C Vendor
-```
+Recommendation:
 
-The Sparkle release tarball contains binaries, symbols, XPC services, and documentation. You only need `Sparkle.framework`. Consider extracting only what's needed to keep the Vendor directory clean.
+- Either request notification authorization in context before relying on this UX path, or avoid notifications here and use a direct alert/open-settings flow from the menu bar app itself.
 
----
+## Medium-Priority Improvements
 
-## LOW — Polish / Best Practices
+### 9. Clipboard handling still relies on fixed timing heuristics
 
-### 14. No `@MainActor` annotations
+Evidence:
 
-Modern Swift concurrency best practice for macOS 13+ is to annotate UI-touching classes with `@MainActor`. Current code uses GCD (`DispatchQueue.main.asyncAfter`) which works fine, but mixing GCD and Swift concurrency can cause issues as the codebase grows.
+- [Sources/TextSwitcher.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/TextSwitcher.swift:31) waits `0.15` seconds after simulating copy.
+- [Sources/TextSwitcher.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/TextSwitcher.swift:58) waits `0.4` seconds before restoring the clipboard.
 
-### 15. `HotkeyDisplayHelper` and `KeyCodeNames` could be collapsed
+Impact:
 
-**Files:** `Sources/HotkeyManager.swift:119-141`, `Sources/PreferencesWindow.swift:239-249`
+- The feature may be flaky in slower apps, Electron apps, web apps, or under load.
 
-Both are small enums with only static methods. They're fine as-is, but they live in separate files. Keeping hotkey display logic in one place would be cleaner.
+Recommendation:
 
-### 16. No `UserDefaults.register(defaults:)` call
+- Replace fixed sleeps with short polling against `pasteboard.changeCount` and a timeout window.
+- Keep the current behavior as a fallback if you need to avoid a larger refactor.
 
-**File:** `Sources/HotkeyManager.swift:87-105`
+### 10. Dependency bootstrap is not integrity-checked
 
-Default values are handled inline with null-checks (`object(forKey:) == nil`). Apple's recommended pattern is calling `UserDefaults.standard.register(defaults:)` early in app launch. This simplifies all the getters.
+Evidence:
 
-### 17. Typo in repository folder name
+- [Makefile](/Users/leonidkorsakov/work/biligual-switcher/Makefile:90) downloads Sparkle with `curl -sL`.
+- The script does not use `--fail` and does not verify a checksum or signature before extracting.
 
-The folder is `biligual-switcher` (missing the 'n' in bilingual). Not a code issue, but visible in paths. Worth renaming the repo before the public release if you haven't already pushed it.
+Impact:
 
----
+- The setup path is more brittle than it needs to be.
+- This is avoidable supply-chain risk for a public project.
 
-## Apple Guidelines Compliance
+Recommendation:
 
-| Guideline                       | Status  | Notes                                                                 |
-|---------------------------------|---------|-----------------------------------------------------------------------|
-| LSUIElement for menu bar app    | Pass    | Correctly set to `true`                                               |
-| NSHighResolutionCapable         | Pass    | Retina-ready                                                          |
-| Accessibility prompt before use | Pass    | Runtime AX check on first launch                                      |
-| No private API usage            | Pass    | All frameworks are public                                             |
-| Code signing                    | Partial | Ad-hoc only — fine for direct distribution, not App Store             |
-| Sandbox                         | N/A     | Not sandboxed — required for Accessibility API access                 |
-| Hardened Runtime                | Missing | Recommended for notarization. Add `--options runtime` to codesign     |
-| Notarization                    | Missing | Required for Gatekeeper on macOS 10.15+. Users will see "unidentified developer" warning without it |
-| Minimum deployment target       | Pass    | macOS 13.0 in Info.plist                                              |
+- Add `--fail` to `curl`.
+- Pin and verify a SHA-256 checksum for the downloaded archive.
+- Extract only what the app needs, not the entire release bundle.
 
----
+### 11. Preferences and About windows use fixed manual frames
 
-## Swift Best Practices Compliance
+Evidence:
 
-| Practice               | Status  | Notes                                                  |
-|------------------------|---------|--------------------------------------------------------|
-| Access control         | Good    | Minor: `setupMenuBar()` should be private              |
-| Memory management      | Good    | `[weak self]` used correctly                           |
-| Error handling         | Adequate| Could improve with `Result` types                      |
-| Naming conventions     | Good    | Follows Swift API Design Guidelines                    |
-| Protocol conformance   | Good    | `NSApplicationDelegate` properly adopted               |
-| Value vs reference types| Good   | Enums for stateless helpers, classes for stateful objects|
-| Deprecated API usage   | Warning | `activate(ignoringOtherApps:)` deprecated macOS 14     |
+- [Sources/PreferencesWindow.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/PreferencesWindow.swift:18) and [Sources/AboutWindow.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AboutWindow.swift:6) construct windows entirely with hard-coded frames.
 
----
+Impact:
 
-## Pre-Release Action Items
+- The UI will not scale well with localization, larger type sizes, or future settings growth.
+- Manual frame math becomes a maintenance burden quickly.
 
-### Must fix
+Recommendation:
 
-- [ ] Fix Latin character range detection in `LayoutConverter.detectDirection()` (#1)
-- [ ] Complete shifted number row mappings in `LayoutConverter` (#3)
-- [ ] Fix `restoreClipboard` to call `writeObjects` once, not per-item (#10)
+- Move these windows to Auto Layout with `NSStackView` and constraints.
 
-### Should fix
+### 12. The status item is missing explicit accessibility metadata
 
-- [ ] Make `setupMenuBar()` private (#4)
-- [ ] Add hardened runtime flag to Makefile codesign step (#Apple Guidelines)
-- [ ] Eliminate dead `.auto` case in convert switch or make it unreachable (#7)
+Evidence:
 
-### Consider
+- [Sources/AppDelegate.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AppDelegate.swift:39) sets the menu bar image, but the custom-image branch does not assign a tooltip or accessibility label to the button.
 
-- [ ] Bump clipboard restore delay to 300-500ms (#2)
-- [ ] Rename repo from `biligual-switcher` to `bilingual-switcher` before first public push (#17)
-- [ ] Filter `TISCreateInputSourceList` to keyboard sources only (#11)
-- [ ] Replace deprecated `activate(ignoringOtherApps:)` with availability check (#12)
+Impact:
+
+- VoiceOver and discoverability are weaker than they should be for a menu bar-only app.
+
+Recommendation:
+
+- Set `button.toolTip` and `button.setAccessibilityLabel("Bilingual Switcher")`.
+
+### 13. `checkAccessibilityOnFirstLaunch()` is not actually first-launch-only
+
+Evidence:
+
+- [Sources/AppDelegate.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AppDelegate.swift:29) calls the method on every launch.
+- [Sources/AppDelegate.swift](/Users/leonidkorsakov/work/biligual-switcher/Sources/AppDelegate.swift:108) passes `kAXTrustedCheckOptionPrompt: true`.
+
+Impact:
+
+- Users who decline initially can be reprompted on later launches with no one-time gating or remembered state.
+
+Recommendation:
+
+- Either rename the method to match its behavior, or gate the prompt behind a stored first-run flag or a user action.
+
+### 14. Repo polish is close, but not finished
+
+Evidence:
+
+- [README.md](/Users/leonidkorsakov/work/biligual-switcher/README.md:30) includes a “Homebrew (coming soon)” install path that does not exist yet.
+- The working directory name is `biligual-switcher`, which is misspelled.
+- There is no changelog or release checklist in the repo.
+
+Impact:
+
+- These are not code blockers, but they reduce the quality of a first public impression.
+
+Recommendation:
+
+- Remove “coming soon” sections until they are live.
+- Rename the repo directory if this typo is still reflected in the public repository name.
+- Add a short `CHANGELOG.md` and a release checklist before tagging `v1.0.0`.
+
+## Swift And Apple Best-Practice Summary
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Swift readability | Good | Small files, clear naming, low complexity |
+| Access control | Good | Mostly disciplined; no major exposure issues |
+| API selection | Good | Uses public AppKit, Carbon, ServiceManagement APIs |
+| Testing | Weak | No automated tests for the core conversion logic |
+| AppKit layout | Weak | Fixed frames throughout settings/about UI |
+| Menu bar app fit | Good | `LSUIElement` and `NSStatusItem` usage are appropriate |
+| Accessibility UX | Needs work | Status-item labeling and permission fallback need improvement |
+| Background items | Mixed | Correct framework, incomplete UX/state handling |
+| Direct distribution readiness | Not ready | Ad-hoc signed, not notarized, not stapled |
+| Release reproducibility | Needs work | Output architecture depends on build host |
+
+## Recommended Release Gate
+
+Do these before publishing the first GitHub release:
+
+1. Set up Developer ID signing, Hardened Runtime, notarization, and stapling.
+2. Decide on universal vs `arm64`-only distribution and make the build pipeline explicit.
+3. Resolve the Sparkle/privacy mismatch: either document it properly or disable it for `1.0.0`.
+4. Add user-visible validation for hotkey registration failures.
+5. Add at least a minimal unit-test suite for layout conversion and preference defaults.
+6. Verify the final signed artifact on a clean macOS machine outside the developer environment.
+
+## Reference Links
+
+- Apple: [Packaging Mac software for distribution](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+- Apple: [Asking permission to use notifications](https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications)
+- Apple: [UNUserNotificationCenter](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter)
+- Apple: [Service Management](https://developer.apple.com/documentation/servicemanagement/)
+- Apple: [SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice)
+- Apple: [SMAppService.Status.notFound](https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum/notfound)
+- Apple HIG: [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/)
+- Apple HIG: [The menu bar](https://developer.apple.com/design/human-interface-guidelines/the-menu-bar)
