@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotkeyManager.register()
 
+        KeyboardLayoutMap.startObservingLayoutChanges()
         setupMenuBar()
         checkAccessibilityOnFirstLaunch()
     }

@@ -11,16 +11,25 @@ jobs:
     name: SwiftLint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: norio-nomura/action-swiftlint@3.2.1
         with:
           args: --strict
+
+  semgrep:
+    name: Semgrep Security Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v6
+      - run: semgrep scan --config p/swift --config p/secrets --config p/owasp-top-ten --error
 
   build:
     name: Build
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app
@@ -32,7 +41,49 @@ jobs:
         run: make
 
       - name: Upload app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BilingualSwitcher.app
           path: build/BilingualSwitcher.app
+
+  test:
+    name: Test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Enable Russian keyboard layout
+        run: |
+          # Add Russian keyboard layout so conversion tests can run
+          defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add \
+            '{ "Bundle ID" = "com.apple.inputmethod.EmojiFunctionRowItem"; InputSourceKind = "Non Keyboard Input Method"; }' \
+            '{ "InputSourceKind" = "Keyboard Layout"; "KeyboardLayout ID" = 19456; "KeyboardLayout Name" = "Russian"; }'
+
+      - name: Download Sparkle
+        run: make setup
+
+      - name: Run tests
+        run: make test
+
+  test-asan:
+    name: Test (AddressSanitizer)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Enable Russian keyboard layout
+        run: |
+          defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add \
+            '{ "InputSourceKind" = "Keyboard Layout"; "KeyboardLayout ID" = 19456; "KeyboardLayout Name" = "Russian"; }'
+
+      - name: Download Sparkle
+        run: make setup
+
+      - name: Run tests with ASan
+        run: make test-asan

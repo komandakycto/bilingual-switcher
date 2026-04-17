@@ -2,38 +2,22 @@ import Carbon
 
 enum InputSourceSwitcher {
 
-    /// Switch the active keyboard layout to match the target language.
-    /// After converting EN→RU text, switch layout to Russian so the user can keep typing in Russian.
+    /// Switch to the other layout in the user's working pair after conversion.
     static func switchTo(direction: ConversionDirection) {
-        let targetLanguage: String
-        switch direction {
-        case .englishToRussian:
-            targetLanguage = "ru"
-        case .russianToEnglish:
-            targetLanguage = "en"
-        case .auto:
-            return
-        }
+        guard direction != .auto else { return }
 
-        let filter = [
-            kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource
-        ] as CFDictionary
-
-        guard let sources = TISCreateInputSourceList(filter, false)?
-            .takeRetainedValue() as? [TISInputSource] else {
-            return
-        }
-
-        for source in sources {
-            guard let languagesRef = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) else {
-                continue
-            }
-            let languages = Unmanaged<CFArray>.fromOpaque(languagesRef).takeUnretainedValue() as? [String] ?? []
-
-            if languages.first == targetLanguage {
-                TISSelectInputSource(source)
-                return
-            }
+        // Use the recent pair to determine what to switch to.
+        // After conversion, the user wants the target layout active.
+        if let pair = KeyboardLayoutMap.recentLayoutPair() {
+            // The "other" layout in the pair is the one we converted TO.
+            let target = direction == .layoutAToB ? pair.previous : pair.current
+            TISSelectInputSource(target.source)
+        } else {
+            // Fallback for 2-layout case without history
+            let layouts = KeyboardLayoutMap.installedLayouts()
+            guard layouts.count >= 2 else { return }
+            let target = direction == .layoutAToB ? layouts[1] : layouts[0]
+            TISSelectInputSource(target.source)
         }
     }
 }

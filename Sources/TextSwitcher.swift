@@ -40,10 +40,17 @@ class TextSwitcher {
                 return
             }
 
-            // 4. Convert
+            // 4. Check we have enough layouts to convert
+            guard KeyboardLayoutMap.installedLayouts().count >= 2 else {
+                self.showSingleLayoutNotification()
+                self.restoreClipboard(savedItems, to: pasteboard)
+                return
+            }
+
+            // 5. Convert
             let (converted, direction) = LayoutConverter.convert(text)
 
-            // 5. Delete selected text, then paste converted text
+            // 6. Delete selected text, then paste converted text
             //    In GUI apps Cmd+V replaces the selection, but terminal apps
             //    (Terminal, iTerm, Claude Code) paste without replacing because
             //    terminal selection is a visual overlay — the shell input buffer
@@ -59,12 +66,12 @@ class TextSwitcher {
             pasteboard.setString(converted, forType: .string)
             self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
 
-            // 6. Switch keyboard layout if the user has enabled this
+            // 7. Switch keyboard layout if the user has enabled this
             if UserDefaults.standard.switchLayoutAfterConversion {
                 InputSourceSwitcher.switchTo(direction: direction)
             }
 
-            // 7. Restore original clipboard after paste completes
+            // 8. Restore original clipboard after paste completes
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self.restoreClipboard(savedItems, to: pasteboard)
             }
@@ -103,6 +110,18 @@ class TextSwitcher {
     }
 
     // MARK: - Notifications
+
+    private func showSingleLayoutNotification() {
+        let alert = NSAlert()
+        alert.messageText = "Two Keyboard Layouts Required"
+        alert.informativeText = """
+            Add a second keyboard layout in System Settings → Keyboard → \
+            Input Sources to enable text conversion.
+            """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
 
     private func showAccessibilityNotification() {
         let alert = NSAlert()
