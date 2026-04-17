@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Sparkle
+        run: make setup
+
+      - name: Run tests
+        run: make test
+
+      - name: Run lint
+        run: |
+          brew install swiftlint
+          make lint
+
+      - name: Build
+        run: make VERSION=${{ steps.version.outputs.version }}
+
+      - name: Create DMG
+        run: make dmg
+
+      - name: Create ZIP
+        run: make zip
+
+      - name: Compute checksums
+        run: |
+          cd build
+          shasum -a 256 BilingualSwitcher.dmg BilingualSwitcher.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Sign ZIP with Sparkle EdDSA
+        id: sign
+        env:
+          SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
+        run: |
+          # Write key to temp file for sign_update
+          KEY_FILE=$(mktemp)
+          echo -n "$SPARKLE_EDDSA_KEY" > "$KEY_FILE"
+          SIGNATURE=$(Vendor/bin/sign_update --ed-key-file "$KEY_FILE" build/BilingualSwitcher.zip)
+          rm -f "$KEY_FILE"
+          echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
+          echo "length=$(stat -f%z build/BilingualSwitcher.zip)" >> "$GITHUB_OUTPUT"
+          echo "EdDSA signature: $SIGNATURE"
+
+      - name: Update appcast.xml
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          SIGNATURE="${{ steps.sign.outputs.signature }}"
+          LENGTH=${{ steps.sign.outputs.length }}
+          URL="https://github.com/komandakycto/bilingual-switcher/releases/download/${GITHUB_REF_NAME}/BilingualSwitcher.zip"
+
+          cat > docs/appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <channel>
+              <title>Bilingual Switcher</title>
+              <link>https://github.com/komandakycto/bilingual-switcher</link>
+              <language>en</language>
+              <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <enclosure url="${URL}"
+                           sparkle:edSignature="${SIGNATURE}"
+                           length="${LENGTH}"
+                           type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+      - name: Update Homebrew cask
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          SHA256=$(shasum -a 256 build/BilingualSwitcher.zip | cut -d' ' -f1)
+          URL="https://github.com/komandakycto/bilingual-switcher/releases/download/${GITHUB_REF_NAME}/BilingualSwitcher.zip"
+
+          mkdir -p Casks
+          cat > Casks/bilingual-switcher.rb << EOF
+          cask "bilingual-switcher" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "${URL}"
+            name "Bilingual Switcher"
+            desc "Convert selected text between keyboard layouts with a hotkey"
+            homepage "https://github.com/komandakycto/bilingual-switcher"
+
+            app "BilingualSwitcher.app"
+
+            zap trash: [
+              "~/Library/Preferences/com.komandakycto.bilingual-switcher.plist",
+            ]
+          end
+          EOF
+
+      - name: Commit appcast and cask updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/appcast.xml Casks/bilingual-switcher.rb
+          git commit -m "Update appcast and cask for ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/BilingualSwitcher.dmg \
+            build/BilingualSwitcher.zip \
+            build/checksums.txt \
+            --title "Bilingual Switcher ${{ steps.version.outputs.version }}" \
+            --generate-notes

@@ -33,11 +33,28 @@ If you type `Ghbdtn!` when you meant `Привет!` — just select the text, p
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew tap komandakycto/bilingual-switcher https://github.com/komandakycto/bilingual-switcher.git
+brew install --cask bilingual-switcher
+```
+
+Homebrew automatically strips the macOS quarantine flag — the app opens without Gatekeeper prompts.
+
 ### Manual download
 
 Download the latest `.dmg` from [Releases](https://github.com/komandakycto/bilingual-switcher/releases), open it, and drag the app to Applications.
 
-> **Note:** The app is not notarized with Apple. On first launch, right-click the app → Open, or go to System Settings → Privacy & Security → click "Open Anyway".
+**Gatekeeper notice:** The app is ad-hoc signed (not notarized with Apple). Before first launch:
+
+```bash
+xattr -cr /Applications/BilingualSwitcher.app
+```
+
+Or: try to open the app, get blocked, then go to **System Settings → Privacy & Security** → scroll down → **Open Anyway**.
+
+You can verify the download integrity with SHA256 checksums from the [release page](https://github.com/komandakycto/bilingual-switcher/releases).
 
 ### Build from source
 
