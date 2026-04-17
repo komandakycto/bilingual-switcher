@@ -14,10 +14,19 @@ class LayoutConverter {
 
     /// Convert text between the user's installed keyboard layouts.
     /// Auto-detects which layout produced the text and converts to the other.
+    /// For 3+ layouts, uses the two most recently active layouts as the working pair.
     static func convert(_ text: String, direction: ConversionDirection = .auto) -> (String, ConversionDirection) {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard layouts.count >= 2 else {
             return (text, .auto)
+        }
+
+        // For 3+ layouts, narrow down to the user's recent pair.
+        let workingLayouts: [LayoutInfo]
+        if layouts.count > 2, let pair = KeyboardLayoutMap.recentLayoutPair() {
+            workingLayouts = [pair.current, pair.previous]
+        } else {
+            workingLayouts = layouts
         }
 
         let resolvedDirection: ConversionDirection
@@ -26,17 +35,17 @@ class LayoutConverter {
 
         switch direction {
         case .auto:
-            let detected = detectSourceLayout(text, layouts: layouts)
+            let detected = detectSourceLayout(text, layouts: workingLayouts)
             sourceLayout = detected.source
             targetLayout = detected.target
             resolvedDirection = detected.direction
         case .layoutAToB:
-            sourceLayout = layouts[0]
-            targetLayout = layouts[1]
+            sourceLayout = workingLayouts[0]
+            targetLayout = workingLayouts[1]
             resolvedDirection = .layoutAToB
         case .layoutBToA:
-            sourceLayout = layouts[1]
-            targetLayout = layouts[0]
+            sourceLayout = workingLayouts[1]
+            targetLayout = workingLayouts[0]
             resolvedDirection = .layoutBToA
         }
 
@@ -82,8 +91,7 @@ class LayoutConverter {
     }
 
     /// Identify the source layout from text content and determine conversion target.
-    /// For 3+ layouts, prefers the currently active layout as target when it differs
-    /// from the detected source.
+    /// Expects a working pair (already narrowed to 2 layouts for the 3+ case).
     private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo]) -> DetectionResult {
         // Build character sets per layout for O(1) membership checks
         let layoutCharSets: [(layout: LayoutInfo, chars: Set<Character>)] = layouts.map { layout in
@@ -110,16 +118,7 @@ class LayoutConverter {
         scores.sort { ($0.uniqueScore, $0.totalScore) > ($1.uniqueScore, $1.totalScore) }
 
         let source = scores[0].layout
-
-        // Target selection: prefer the currently active layout if it differs from source.
-        // This handles 3+ layouts correctly (e.g., EN+RU+FR: if user is typing in RU
-        // and text is detected as EN, target should be RU — the active layout).
-        let target: LayoutInfo
-        if let current = KeyboardLayoutMap.currentLayout(), current.id != source.id {
-            target = current
-        } else {
-            target = scores.count > 1 ? scores[1].layout : source
-        }
+        let target = scores.count > 1 ? scores[1].layout : source
 
         let direction: ConversionDirection = source.id == layouts[0].id ? .layoutAToB : .layoutBToA
         return DetectionResult(source: source, target: target, direction: direction)

@@ -34,6 +34,10 @@ class KeyboardLayoutMap {
     /// Cached layout list.
     private static var layoutCache: [LayoutInfo]?
 
+    /// The two most recently active layout IDs (newest first).
+    /// Tracked via layout-switch notifications so we know the user's working pair.
+    private static var recentLayoutIDs: [String] = []
+
     /// Shift modifier state for UCKeyTranslate: (shiftKey >> 8) & 0xFF.
     private static let shiftModifier: UInt32 = (UInt32(shiftKey) >> 8) & 0xFF
 
@@ -88,6 +92,57 @@ class KeyboardLayoutMap {
         guard let idRef = TISGetInputSourceProperty(current, kTISPropertyInputSourceID) else { return nil }
         let currentID = Unmanaged<CFString>.fromOpaque(idRef).takeUnretainedValue() as String
         return installedLayouts().first { $0.id == currentID }
+    }
+
+    /// Returns the two most recently used layouts (newest first).
+    /// Falls back to the first two installed layouts if history isn't available yet.
+    static func recentLayoutPair() -> (current: LayoutInfo, previous: LayoutInfo)? {
+        let layouts = installedLayouts()
+        guard layouts.count >= 2 else { return nil }
+
+        lock.lock()
+        let recent = recentLayoutIDs
+        lock.unlock()
+
+        let current: LayoutInfo
+        let previous: LayoutInfo
+
+        if recent.count >= 2,
+           let curr = layouts.first(where: { $0.id == recent[0] }),
+           let prev = layouts.first(where: { $0.id == recent[1] }) {
+            current = curr
+            previous = prev
+        } else {
+            // Not enough history — fall back to current + first different installed layout
+            if let curr = currentLayout(), let other = layouts.first(where: { $0.id != curr.id }) {
+                current = curr
+                previous = other
+            } else {
+                current = layouts[0]
+                previous = layouts[1]
+            }
+        }
+
+        return (current, previous)
+    }
+
+    /// Record a layout switch in the recent history.
+    private static func recordLayoutSwitch() {
+        guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let idRef = TISGetInputSourceProperty(current, kTISPropertyInputSourceID) else { return }
+        let currentID = Unmanaged<CFString>.fromOpaque(idRef).takeUnretainedValue() as String
+
+        // Only keyboard layouts with UCKeyboardLayout data (skip input methods)
+        guard TISGetInputSourceProperty(current, kTISPropertyUnicodeKeyLayoutData) != nil else { return }
+
+        lock.lock()
+        if recentLayoutIDs.first != currentID {
+            recentLayoutIDs.insert(currentID, at: 0)
+            if recentLayoutIDs.count > 2 {
+                recentLayoutIDs.removeLast(recentLayoutIDs.count - 2)
+            }
+        }
+        lock.unlock()
     }
 
     // MARK: - Character Map Building
@@ -177,17 +232,31 @@ class KeyboardLayoutMap {
         lock.unlock()
     }
 
-    /// Start listening for layout install/uninstall/enable events.
-    /// Uses kTISNotifyEnabledKeyboardInputSourcesChanged (not the "selected" variant
-    /// which fires on every Cmd+Space and would defeat the cache).
+    /// Start listening for layout events.
     static func startObservingLayoutChanges() {
-        DistributedNotificationCenter.default().addObserver(
+        let center = DistributedNotificationCenter.default()
+
+        // Invalidate caches when layouts are installed/uninstalled/enabled.
+        center.addObserver(
             forName: .init("com.apple.Carbon.TISNotifyEnabledKeyboardInputSourcesChanged"),
             object: nil,
             queue: .main
         ) { _ in
             rebuildMaps()
         }
+
+        // Track layout switches (Cmd+Space etc.) to maintain the recent pair.
+        // This does NOT invalidate caches — just records which layouts the user uses.
+        center.addObserver(
+            forName: .init("com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            recordLayoutSwitch()
+        }
+
+        // Seed the history with the current layout on startup.
+        recordLayoutSwitch()
     }
 
     // MARK: - UCKeyTranslate Helpers
