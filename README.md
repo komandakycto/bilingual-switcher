@@ -56,7 +56,7 @@ make install   # copies to /Applications
 1. **Launch** the app — it appears as an icon in the menu bar
 2. **Grant Accessibility permission** when prompted (required to read/replace selected text)
 3. **Select** the wrongly-typed text in any app
-4. **Press the hotkey** (default: `⌃⌥S` — Control + Option + S)
+4. **Press the hotkey** (default: `⌥⌘S` — Option + Command + S)
 5. The text is converted in place
 
 ### Changing the hotkey

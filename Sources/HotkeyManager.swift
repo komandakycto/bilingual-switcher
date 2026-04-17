@@ -104,9 +104,9 @@ extension UserDefaults {
     var hotkeyModifiers: UInt32 {
         get {
             let val = integer(forKey: Self.hotkeyModifiersKey)
-            // Default: Control + Option
+            // Default: Option + Command
             return val == 0 && object(forKey: Self.hotkeyModifiersKey) == nil
-                ? UInt32(controlKey | optionKey)
+                ? UInt32(optionKey | cmdKey)
                 : UInt32(val)
         }
         set { set(Int(newValue), forKey: Self.hotkeyModifiersKey) }
