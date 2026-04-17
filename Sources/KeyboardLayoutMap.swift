@@ -113,16 +113,11 @@ class KeyboardLayoutMap {
                                                    baseKeyCodes: deadKeyBaseChars,
                                                    layoutData: layoutData,
                                                    keyboardType: keyboardType) {
-                    for (baseKeyCode, baseShift, char) in composed {
+                    for result in composed {
                         let key = CharacterMapKey(keyCode: keyCode, shifted: shift)
-                        // Store in map only if not already present (direct key takes priority)
                         if map[key] == nil {
-                            map[key] = char
+                            map[key] = result.character
                         }
-                        // Also store the composed result keyed by the dead+base combination
-                        // We don't have a multi-key map structure, so dead key compositions
-                        // are available via the reverse map when converting
-                        _ = (baseKeyCode, baseShift, char) // compositions tracked via reverse map
                     }
                 }
             }
@@ -213,11 +208,16 @@ class KeyboardLayoutMap {
         return char
     }
 
+    private struct DeadKeyResult {
+        let baseKeyCode: UInt16
+        let baseShifted: Bool
+        let character: Character
+    }
+
     /// Try a key as a dead key, combining with base characters.
-    /// Returns array of (baseKeyCode, baseShifted, composedCharacter) if the key is a dead key.
     private static func translateDeadKey(deadKeyCode: UInt16, shift: Bool,
                                          baseKeyCodes: [UInt16],
-                                         layoutData: Data, keyboardType: UInt32) -> [(UInt16, Bool, Character)]? {
+                                         layoutData: Data, keyboardType: UInt32) -> [DeadKeyResult]? {
         let modifierState: UInt32 = shift ? (UInt32(shiftKey) >> 8) & 0xFF : 0
         var deadKeyState: UInt32 = 0
         let maxLength = 4
@@ -246,7 +246,7 @@ class KeyboardLayoutMap {
         guard result1 == noErr, deadKeyState != 0 else { return nil }
 
         // This is a dead key — try combining with base characters
-        var results: [(UInt16, Bool, Character)] = []
+        var results: [DeadKeyResult] = []
         let savedDeadState = deadKeyState
 
         for baseCode in baseKeyCodes {
@@ -277,7 +277,7 @@ class KeyboardLayoutMap {
                 if result2 == noErr, actualLength > 0 {
                     let str = String(utf16CodeUnits: chars, count: actualLength)
                     if let char = str.first, char.unicodeScalars.first.map({ $0.value >= 0x20 }) == true {
-                        results.append((baseCode, baseShift, char))
+                        results.append(DeadKeyResult(baseKeyCode: baseCode, baseShifted: baseShift, character: char))
                     }
                 }
             }

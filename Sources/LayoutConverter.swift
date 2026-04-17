@@ -60,49 +60,47 @@ class LayoutConverter {
     /// Identify the source layout from text content and determine conversion target.
     /// For 3+ layouts, uses unique character scoring with a tiebreaker that prefers
     /// the currently active layout's counterpart.
-    private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo])
-        -> (source: LayoutInfo, target: LayoutInfo, direction: ConversionDirection) {
+    private struct DetectionResult {
+        let source: LayoutInfo
+        let target: LayoutInfo
+        let direction: ConversionDirection
+    }
+
+    private struct LayoutScore {
+        let layout: LayoutInfo
+        let uniqueScore: Int
+        let totalScore: Int
+    }
+
+    private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo]) -> DetectionResult {
 
         // Score each layout: count characters that are UNIQUE to that layout
         // (i.e., exist in its reverse map but not in others). Unique chars are
         // stronger signals than shared chars (like digits or common punctuation).
-        var reverseMaps: [(layout: LayoutInfo, map: [Character: KeyMapping])] = []
-        for layout in layouts {
-            reverseMaps.append((layout, KeyboardLayoutMap.buildReverseMap(for: layout)))
-        }
+        let reverseMaps = layouts.map { (layout: $0, map: KeyboardLayoutMap.buildReverseMap(for: $0)) }
 
-        var scores: [(layout: LayoutInfo, uniqueScore: Int, totalScore: Int)] = []
-        for (i, entry) in reverseMaps.enumerated() {
+        var scores: [LayoutScore] = []
+        for (index, entry) in reverseMaps.enumerated() {
             var uniqueScore = 0
             var totalScore = 0
             for char in text {
                 guard entry.map[char] != nil else { continue }
                 totalScore += 1
-                // Check if this char is unique to this layout
-                let isUnique = !reverseMaps.enumerated().contains { j, other in
-                    j != i && other.map[char] != nil
+                let isUnique = !reverseMaps.enumerated().contains { otherIndex, other in
+                    otherIndex != index && other.map[char] != nil
                 }
                 if isUnique { uniqueScore += 1 }
             }
-            scores.append((entry.layout, uniqueScore, totalScore))
+            scores.append(LayoutScore(layout: entry.layout, uniqueScore: uniqueScore, totalScore: totalScore))
         }
 
-        // Sort by unique score first, then total score as tiebreaker
         scores.sort { ($0.uniqueScore, $0.totalScore) > ($1.uniqueScore, $1.totalScore) }
 
         let source = scores[0].layout
-        // Target: the next best layout (not the source)
         let target = scores.count > 1 ? scores[1].layout : scores[0].layout
 
-        // Determine direction relative to the layout ordering
-        let direction: ConversionDirection
-        if source.id == layouts[0].id {
-            direction = .layoutAToB
-        } else {
-            direction = .layoutBToA
-        }
-
-        return (source, target, direction)
+        let direction: ConversionDirection = source.id == layouts[0].id ? .layoutAToB : .layoutBToA
+        return DetectionResult(source: source, target: target, direction: direction)
     }
 
     /// Convert text from one layout to another via physical key codes.
