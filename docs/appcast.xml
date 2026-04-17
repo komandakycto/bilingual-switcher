@@ -4,6 +4,14 @@
     <title>Bilingual Switcher</title>
     <link>https://github.com/komandakycto/bilingual-switcher</link>
     <language>en</language>
-    <!-- Updated automatically by the release workflow -->
+    <item>
+      <title>Version 0.0.1-rc1</title>
+      <sparkle:version>0.0.1-rc1</sparkle:version>
+      <sparkle:shortVersionString>0.0.1-rc1</sparkle:shortVersionString>
+      <enclosure url="https://github.com/komandakycto/bilingual-switcher/releases/download/v0.0.1-rc1/BilingualSwitcher.zip"
+                 sparkle:edSignature="sparkle:edSignature=OreusMEY+Cz23ooyk4yCIs10GneGGOAwG7MXAMnhHFKYwu6rZDhBzKep51nzE/tJAkjtI+ihJWzPOlig0qk3Bg== length=2969125"
+                 length="2969125"
+                 type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
