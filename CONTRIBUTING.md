@@ -50,7 +50,7 @@ Vendor/            Sparkle framework (gitignored, downloaded via make setup)
 
 ## Submitting changes
 
-1. Fork the repo and create a branch from `main`
+1. Create a branch from `main`
 2. Make your changes
 3. Run `make test` and `make lint` to verify
 4. Open a pull request
