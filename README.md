@@ -11,25 +11,39 @@
 
 <p align="center">
 A lightweight macOS menu bar app that converts selected text between<br>
-any two keyboard layouts with a single hotkey.<br>
-Supports <strong>any language pair</strong> — English, Russian, French, German, Spanish, and more.
+any two keyboard layouts with a single hotkey.
 </p>
 
 ---
 
-If you type `Ghbdtn!` when you meant `Привет!` — just select the text, press the hotkey, and it's fixed.
+Ever type a whole sentence only to realize your keyboard was in the wrong language?
+
+`Ghbdtn vbh!` instead of `Привет мир!` — or `Руддщ Цщкдв!` instead of `Hello World!`
+
+Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any language pair — not just English and Russian.
 
 ## Features
 
 - **Instant conversion** — select text, press hotkey, done
 - **Any language pair** — dynamically reads your installed keyboard layouts via macOS APIs, no hardcoded mappings
 - **Auto-detection** — detects which layout produced the text and converts to the other
-- **Configurable hotkey** — set any key combination in Preferences
+- **Works everywhere** — GUI apps, terminals (iTerm, Terminal.app, Claude Code), text editors
+- **Configurable hotkey** — set any key combination in Preferences (default: ⌥⌘S)
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS
 - **Auto-updates** — built-in update checking via Sparkle
-- **Privacy-first** — no telemetry, no data collection. Only network access is optional update checks via Sparkle
+- **Privacy-first** — no telemetry, no data collection; only network access is optional update checks
 - **Lightweight** — native Swift, no Electron, minimal resource usage
+
+## Supported Languages
+
+The app works with **any keyboard layout installed on your Mac** that uses physical key mapping — this covers most languages:
+
+**Tested:** English, Russian, Ukrainian, French, German, Spanish, Portuguese, Italian
+
+**Should work (same mechanism):** Polish, Czech, Turkish, Swedish, Norwegian, Danish, Dutch, Romanian, Hungarian, and any other standard keyboard layout
+
+**Not supported:** CJK input methods (Chinese, Japanese, Korean) — these use composing engines, not direct key mapping
 
 ## Install
 
@@ -84,29 +98,27 @@ Menu bar icon → Preferences → click the shortcut field → press your desire
 
 | You typed | You get |
 |-----------|---------|
-| `Ghbdtn!` | `Привет!` |
-| `Руддщ` | `Hello` |
+| `Ghbdtn vbh!` | `Привет мир!` |
+| `Руддщ Цщкдв!` | `Hello World!` |
 | `Dctv ghbdtn` | `Всем привет` |
 | `Рфззн Ишкесфн` | `Happy Birthday` |
 
 ## How it works
 
-The app maintains a complete character mapping of physical key positions between QWERTY and ЙЦУКЕН (Russian PC) layouts. When triggered:
+The app uses the macOS `UCKeyTranslate` API to read the character map of every keyboard layout installed on your system. When triggered:
 
-1. Copies the selected text (simulates `⌘C`)
-2. Detects whether the text is Latin or Cyrillic
-3. Converts each character to its counterpart on the other layout
-4. Pastes the result (simulates `⌘V`)
+1. Copies the selected text (simulates ⌘C)
+2. Scores the text against each installed layout to detect which one produced it
+3. Converts each character via physical key codes: source layout char → key code → target layout char
+4. Deletes the original and pastes the result
 5. Restores your original clipboard
+
+With 3+ layouts installed, the app tracks the two you most recently switched between and converts within that pair.
 
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
 - Accessibility permission (prompted on first launch)
-
-## Keyboard layout
-
-Uses the **Russian — PC** layout mapping (standard ЙЦУКЕН), which matches the layout most Russian speakers use on macOS. This is the same mapping that PuntoSwitcher used.
 
 ## Contributing
 
