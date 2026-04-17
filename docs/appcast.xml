@@ -5,13 +5,13 @@
     <link>https://github.com/komandakycto/bilingual-switcher</link>
     <language>en</language>
     <item>
-      <title>Version 0.0.1-rc1</title>
-      <sparkle:version>0.0.1-rc1</sparkle:version>
-      <sparkle:shortVersionString>0.0.1-rc1</sparkle:shortVersionString>
-      <enclosure url="https://github.com/komandakycto/bilingual-switcher/releases/download/v0.0.1-rc1/BilingualSwitcher.zip"
-                 sparkle:edSignature="sparkle:edSignature=OreusMEY+Cz23ooyk4yCIs10GneGGOAwG7MXAMnhHFKYwu6rZDhBzKep51nzE/tJAkjtI+ihJWzPOlig0qk3Bg== length=2969125"
-                 length="2969125"
-                 type="application/octet-stream"/>
-    </item>
-  </channel>
+        <title>Version 0.0.1-rc2</title>
+        <sparkle:version>0.0.1-rc2</sparkle:version>
+        <sparkle:shortVersionString>0.0.1-rc2</sparkle:shortVersionString>
+        <enclosure url="https://github.com/komandakycto/bilingual-switcher/releases/download/v0.0.1-rc2/BilingualSwitcher.zip"
+                   sparkle:edSignature="Q7Sh0PiBgnEUhdwdFAAoyx3kxP84dl0NyEucY3IplnFGGmmB9SXQDjh7pRGpPlrqbtI5nUFx3T+U1XxXWN0FAQ=="
+                   length="2358852"
+                   type="application/octet-stream"/>
+      </item>
+    </channel>
 </rss>
