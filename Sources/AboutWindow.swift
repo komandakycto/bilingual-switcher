@@ -47,7 +47,7 @@ class AboutWindowController: NSWindowController {
         versionLabel.frame = NSRect(x: 20, y: 68, width: 280, height: 18)
         contentView.addSubview(versionLabel)
 
-        let descLabel = NSTextField(labelWithString: "Switch text between English and Russian\nkeyboard layouts with a hotkey.")
+        let descLabel = NSTextField(labelWithString: "Convert selected text between any two\ninstalled keyboard layouts with a hotkey.")
         descLabel.font = .systemFont(ofSize: 11)
         descLabel.textColor = .secondaryLabelColor
         descLabel.alignment = .center
