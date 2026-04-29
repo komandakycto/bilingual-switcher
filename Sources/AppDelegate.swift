@@ -27,7 +27,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardLayoutMap.startObservingLayoutChanges()
         setupMenuBar()
-        checkAccessibilityOnFirstLaunch()
     }
 
     // MARK: - Menu Bar
@@ -103,36 +102,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let modifiers = UserDefaults.standard.hotkeyModifiers
         let keyCode = UserDefaults.standard.hotkeyKeyCode
         return "Hotkey: \(HotkeyDisplayHelper.format(keyCode: keyCode, modifiers: modifiers))"
-    }
-
-    // MARK: - Accessibility
-
-    private func checkAccessibilityOnFirstLaunch() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        if !trusted {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = """
-                Bilingual Switcher needs Accessibility access to read \
-                and replace selected text.
-
-                Please grant access in:
-                System Settings \u{2192} Privacy & Security \u{2192} Accessibility
-
-                Then restart the app.
-                """
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Later")
-
-            if alert.runModal() == .alertFirstButtonReturn {
-                guard let url = URL(
-                    string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                ) else { return }
-                NSWorkspace.shared.open(url)
-            }
-        }
     }
 
     // MARK: - Helpers
