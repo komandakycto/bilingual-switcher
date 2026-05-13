@@ -47,13 +47,18 @@ class TextSwitcher {
 
         Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
 
+        // Capture self strongly. The clipboard was just cleared; if a
+        // `[weak self]` early-returned because self deallocated mid-poll,
+        // the user's clipboard would stay cleared. TextSwitcher is owned by
+        // AppDelegate for the app's lifetime, so the only extra retention
+        // here is ~500 ms during the hotkey operation — no cycle, since
+        // this closure is not stored on self.
         Self.pollForClipboardChange(
             initialChangeCount: baselineChangeCount,
             timeout: Self.copyTimeout,
             pollInterval: Self.copyPollInterval,
             pasteboard: pasteboard
-        ) { [weak self] didChange in
-            guard let self else { return }
+        ) { didChange in
             self.completeConversion(
                 copied: didChange,
                 copiedText: pasteboard.string(forType: .string),
