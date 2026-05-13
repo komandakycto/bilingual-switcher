@@ -83,22 +83,51 @@ class TextSwitcher {
             //    converted text is still on the clipboard.
             let delay = Self.clipboardRestoreDelay(forTextLength: text.count)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                let stillOurs = pasteboard.string(forType: .string) == converted
-                guard stillOurs else { return }
-                self.restoreClipboard(savedItems, to: pasteboard)
+                Self.restoreClipboardIfStillOurs(
+                    savedItems: savedItems,
+                    expectedConverted: converted,
+                    on: pasteboard
+                )
             }
         }
     }
 
     /// Delay before restoring the user's original clipboard after Cmd+V.
     /// Must be long enough for the focused application to finish processing
-    /// the deselect + backspaces + paste sequence we posted. Slow Electron
-    /// apps need more time for longer text. Exposed for testing.
+    /// the deselect + backspaces + paste sequence we posted. The coefficient
+    /// 0.02 s/character is empirical, calibrated against Slack/Electron on the
+    /// dev machine — it's a heuristic, not a derived constant. Bounded so the
+    /// user's clipboard isn't held hostage on pathological input.
     static func clipboardRestoreDelay(forTextLength length: Int) -> TimeInterval {
         let base: TimeInterval = 0.4
         let perCharacter: TimeInterval = 0.02
         let maxDelay: TimeInterval = 3.0
         return min(maxDelay, base + perCharacter * Double(length))
+    }
+
+    /// Restore the user's original clipboard, but only if the clipboard still
+    /// contains the converted text we put there. If it doesn't, the host app
+    /// either already consumed it for Cmd+V (we're racing safely) or the user
+    /// copied something else (don't stomp on their action). Returns whether
+    /// a restore happened. Static + internal so tests can drive it.
+    @discardableResult
+    static func restoreClipboardIfStillOurs(
+        savedItems: [[NSPasteboard.PasteboardType: Data]]?,
+        expectedConverted: String,
+        on pasteboard: NSPasteboard
+    ) -> Bool {
+        guard pasteboard.string(forType: .string) == expectedConverted else { return false }
+        guard let savedItems, !savedItems.isEmpty else { return false }
+        let pasteboardItems = savedItems.map { itemDict -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            for (type, data) in itemDict {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(pasteboardItems)
+        return true
     }
 
     // MARK: - Clipboard
