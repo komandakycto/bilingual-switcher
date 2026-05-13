@@ -71,11 +71,34 @@ class TextSwitcher {
                 InputSourceSwitcher.switchTo(direction: direction)
             }
 
-            // 8. Restore original clipboard after paste completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            // 8. Restore original clipboard after paste completes.
+            //    We just posted Right Arrow + N × Backspace + Cmd+V (2N+4 events).
+            //    Electron apps (Slack, Discord, VS Code) process keyboard events
+            //    through an IPC queue and can take well over 400 ms to drain it
+            //    for longer text. If we restore before the host reads the
+            //    clipboard for Cmd+V, the original (pre-conversion) clipboard
+            //    text is pasted instead of the converted text — see issue
+            //    discovered by typing a long phrase in the wrong layout in Slack.
+            //    Scale the delay with text length and only restore if our
+            //    converted text is still on the clipboard.
+            let delay = Self.clipboardRestoreDelay(forTextLength: text.count)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                let stillOurs = pasteboard.string(forType: .string) == converted
+                guard stillOurs else { return }
                 self.restoreClipboard(savedItems, to: pasteboard)
             }
         }
+    }
+
+    /// Delay before restoring the user's original clipboard after Cmd+V.
+    /// Must be long enough for the focused application to finish processing
+    /// the deselect + backspaces + paste sequence we posted. Slow Electron
+    /// apps need more time for longer text. Exposed for testing.
+    static func clipboardRestoreDelay(forTextLength length: Int) -> TimeInterval {
+        let base: TimeInterval = 0.4
+        let perCharacter: TimeInterval = 0.02
+        let maxDelay: TimeInterval = 3.0
+        return min(maxDelay, base + perCharacter * Double(length))
     }
 
     // MARK: - Clipboard
