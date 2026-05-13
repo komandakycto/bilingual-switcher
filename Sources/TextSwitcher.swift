@@ -117,13 +117,16 @@ class TextSwitcher {
     }
 
     /// Re-populate the pasteboard with the previously snapshotted items.
-    /// Returns `true` iff anything was written.
-    @discardableResult
+    /// An empty `items` array is a valid saved state — it means the original
+    /// pasteboard was empty, and "restoring" must put it back into that
+    /// state (clear it), not no-op and leave intermediate Cmd+C content
+    /// behind.
     static func restoreClipboard(
         _ items: [[NSPasteboard.PasteboardType: Data]],
         to pasteboard: NSPasteboard
-    ) -> Bool {
-        guard !items.isEmpty else { return false }
+    ) {
+        pasteboard.clearContents()
+        guard !items.isEmpty else { return }
         let pasteboardItems = items.map { dict -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in dict {
@@ -131,9 +134,7 @@ class TextSwitcher {
             }
             return item
         }
-        pasteboard.clearContents()
         pasteboard.writeObjects(pasteboardItems)
-        return true
     }
 
     /// Wait on the main queue (without blocking it) for `pasteboard.changeCount`
@@ -188,17 +189,46 @@ class TextSwitcher {
         event.post(tap: .cghidEventTap)
     }
 
-    /// Split `string` into UTF-16 segments of at most `maxCodeUnits` units.
-    /// UTF-16 is the right granularity: `CGEventKeyboardSetUnicodeString`
-    /// takes a `UniChar` (UInt16) buffer with a length expressed in code
-    /// units. Empty input yields `[]`. `maxCodeUnits` must be positive.
+    /// Split `string` into UTF-16 segments of at most `maxCodeUnits` units,
+    /// packed scalar by scalar so a non-BMP Unicode scalar (e.g. emoji) — which
+    /// occupies a surrogate pair of two UTF-16 code units — is never split
+    /// across chunks. Splitting a surrogate pair would send malformed UTF-16
+    /// to `CGEventKeyboardSetUnicodeString`, producing replacement characters
+    /// or dropped input. Empty input yields `[]`. `maxCodeUnits` must be at
+    /// least 2 to accommodate any non-BMP scalar.
     static func chunkUTF16(_ string: String, maxCodeUnits: Int) -> [[UniChar]] {
         precondition(maxCodeUnits > 0, "maxCodeUnits must be positive")
-        let utf16 = Array(string.utf16)
-        guard !utf16.isEmpty else { return [] }
-        return stride(from: 0, to: utf16.count, by: maxCodeUnits).map { start in
-            Array(utf16[start..<min(start + maxCodeUnits, utf16.count)])
+        guard !string.isEmpty else { return [] }
+
+        var chunks: [[UniChar]] = []
+        var current: [UniChar] = []
+        current.reserveCapacity(maxCodeUnits)
+
+        for scalar in string.unicodeScalars {
+            let value = scalar.value
+            let needed = value <= 0xFFFF ? 1 : 2
+            precondition(needed <= maxCodeUnits,
+                         "maxCodeUnits too small to fit a single non-BMP scalar")
+
+            if current.count + needed > maxCodeUnits {
+                chunks.append(current)
+                current.removeAll(keepingCapacity: true)
+            }
+
+            if value <= 0xFFFF {
+                current.append(UniChar(value))
+            } else {
+                // Encode supplementary scalar as UTF-16 surrogate pair.
+                // Reference: Unicode Standard §3.9, RFC 2781 §2.1.
+                let shifted = value - 0x10000
+                current.append(UniChar(0xD800 + (shifted >> 10)))
+                current.append(UniChar(0xDC00 + (shifted & 0x3FF)))
+            }
         }
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+        return chunks
     }
 
     // MARK: - Keyboard simulation

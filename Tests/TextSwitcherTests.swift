@@ -73,6 +73,50 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(chunks.map(\.count), [3, 3, 3, 1])
     }
 
+    /// Regression for reviewer-found bug: naive UTF-16 slicing splits the
+    /// 🙂 surrogate pair across chunk 1 (high surrogate) and chunk 2 (low
+    /// surrogate), sending malformed UTF-16 to CoreGraphics. The scalar-aware
+    /// packer must flush the chunk early so the pair stays together.
+    func testChunkUTF16_DoesNotSplitSurrogatePairAtBoundary() {
+        let text = String(repeating: "a", count: 19) + "🙂"
+        let chunks = TextSwitcher.chunkUTF16(text, maxCodeUnits: 20)
+
+        XCTAssertEqual(chunks.count, 2,
+                       "Chunker must flush early to keep the surrogate pair together")
+        XCTAssertEqual(chunks[0].count, 19, "First chunk holds the 19 ASCII chars only")
+        XCTAssertEqual(chunks[1].count, 2, "Second chunk holds the full surrogate pair")
+
+        // Validate the pair: 0xD83D 0xDE42 = U+1F642 🙂
+        XCTAssertTrue((0xD800...0xDBFF).contains(chunks[1][0]), "High surrogate first")
+        XCTAssertTrue((0xDC00...0xDFFF).contains(chunks[1][1]), "Low surrogate second")
+    }
+
+    /// Stronger invariant: across any input + any chunk size, no chunk ever
+    /// ends with a lone high surrogate or begins with a lone low surrogate.
+    func testChunkUTF16_NeverProducesOrphanSurrogates() {
+        let mixed = "Hello 🙂 мир 🚀 こんにちは 🎉 test"
+        for limit in 2...10 {
+            let chunks = TextSwitcher.chunkUTF16(mixed, maxCodeUnits: limit)
+            for chunk in chunks {
+                if let last = chunk.last {
+                    XCTAssertFalse((0xD800...0xDBFF).contains(last),
+                                   "Chunk ends with high surrogate at limit \(limit)")
+                }
+                if let first = chunk.first {
+                    XCTAssertFalse((0xDC00...0xDFFF).contains(first),
+                                   "Chunk starts with low surrogate at limit \(limit)")
+                }
+            }
+        }
+    }
+
+    func testChunkUTF16_LosslessRoundTripWithNonBMP() {
+        let original = "Hi 🙂🚀🎉 there"
+        let chunks = TextSwitcher.chunkUTF16(original, maxCodeUnits: 4)
+        let flat = chunks.flatMap { $0 }
+        XCTAssertEqual(String(utf16CodeUnits: flat, count: flat.count), original)
+    }
+
     /// The platform limit constant must match what we chunk at — guards
     /// against someone "optimizing" the chunker and forgetting the platform
     /// constraint.
@@ -95,7 +139,7 @@ final class TextSwitcherTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("garbage", forType: .string)
 
-        XCTAssertTrue(TextSwitcher.restoreClipboard(snapshot, to: pasteboard))
+        TextSwitcher.restoreClipboard(snapshot, to: pasteboard)
         XCTAssertEqual(pasteboard.string(forType: .string), "original")
     }
 
@@ -114,12 +158,18 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(pasteboard.data(forType: .rtf), Data("{\\rtf1 hello}".utf8))
     }
 
-    func testRestoreReturnsFalseForEmptySnapshotWithoutTouchingPasteboard() {
+    /// Regression for reviewer-found bug: an empty snapshot means the
+    /// original clipboard was empty. After Cmd+C the clipboard holds the
+    /// selected text; restoring must put it back into the empty state,
+    /// not leave the selected text behind.
+    func testRestoreOfEmptySnapshotClearsClipboard() {
         pasteboard.clearContents()
-        pasteboard.setString("preexisting", forType: .string)
+        pasteboard.setString("intermediate (post-Cmd+C content)", forType: .string)
 
-        XCTAssertFalse(TextSwitcher.restoreClipboard([], to: pasteboard))
-        XCTAssertEqual(pasteboard.string(forType: .string), "preexisting")
+        TextSwitcher.restoreClipboard([], to: pasteboard)
+
+        XCTAssertNil(pasteboard.string(forType: .string),
+                     "Empty snapshot must clear the pasteboard, not no-op")
     }
 
     // MARK: - pollForClipboardChange
