@@ -3,16 +3,109 @@ import Carbon
 
 class TextSwitcher {
 
+    // MARK: - Tunables
+
+    /// Maximum time to wait for the focused app to fill the pasteboard after
+    /// Cmd+C. Polling stops as soon as `changeCount` ticks. 500 ms is generous
+    /// for slow Electron apps; well under the user-perceived latency budget
+    /// for a hotkey gesture.
+    private static let copyTimeout: TimeInterval = 0.5
+
+    /// Interval between `changeCount` reads while waiting on Cmd+C. Reads are
+    /// cheap, but each requeues `asyncAfter`, which has its own overhead.
+    private static let copyPollInterval: TimeInterval = 0.01
+
+    /// `CGEventKeyboardSetUnicodeString` writes into a fixed UniChar buffer in
+    /// the event payload. The documented & widely cited size is 20 UTF-16
+    /// code units per event; longer strings are silently truncated. See
+    /// `<CoreGraphics/CGEvent.h>` and isamert.net "Typing (unicode) characters
+    /// programmatically on Linux and macOS".
+    static let unicodeChunkLimit = 20
+
+    /// Tiny pause between Unicode chunks. Some apps drop chunks posted
+    /// back-to-back at HID rate; Espanso and similar tools default to a
+    /// 1–4 ms delay. Conservative middle ground.
+    private static let interChunkDelay: useconds_t = 2_000
+
+    /// One CGEventSource reused for every posted event. Constructing this
+    /// object per event was a measurable cost in the old code — for a 50-char
+    /// selection we'd build it ~100 times per hotkey press.
+    private static let eventSource: CGEventSource? = CGEventSource(stateID: .combinedSessionState)
+
+    // MARK: - Main flow
+
     func switchSelectedText() {
         guard AXIsProcessTrusted() else {
             showAccessibilityNotification()
             return
         }
 
-        // 1. Save current clipboard
         let pasteboard = NSPasteboard.general
-        let savedChangeCount = pasteboard.changeCount
-        let savedItems = pasteboard.pasteboardItems?.map { item -> [NSPasteboard.PasteboardType: Data] in
+        let savedItems = Self.snapshot(of: pasteboard)
+        pasteboard.clearContents()
+        let baselineChangeCount = pasteboard.changeCount
+
+        Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
+
+        Self.pollForClipboardChange(
+            initialChangeCount: baselineChangeCount,
+            timeout: Self.copyTimeout,
+            pollInterval: Self.copyPollInterval,
+            pasteboard: pasteboard
+        ) { [weak self] didChange in
+            guard let self else { return }
+            self.completeConversion(
+                copied: didChange,
+                copiedText: pasteboard.string(forType: .string),
+                savedItems: savedItems,
+                pasteboard: pasteboard
+            )
+        }
+    }
+
+    private func completeConversion(
+        copied: Bool,
+        copiedText: String?,
+        savedItems: [[NSPasteboard.PasteboardType: Data]],
+        pasteboard: NSPasteboard
+    ) {
+        guard copied, let text = copiedText, !text.isEmpty else {
+            Self.restoreClipboard(savedItems, to: pasteboard)
+            return
+        }
+
+        guard KeyboardLayoutMap.installedLayouts().count >= 2 else {
+            showSingleLayoutNotification()
+            Self.restoreClipboard(savedItems, to: pasteboard)
+            return
+        }
+
+        let (converted, direction) = LayoutConverter.convert(text)
+
+        // The Unicode-injection paste path does NOT touch the pasteboard, so
+        // we can restore the user's clipboard right now — before posting any
+        // keystrokes. This eliminates the prior race in which a slow host
+        // read the clipboard for Cmd+V after our restore timer had already
+        // put the original content back.
+        Self.restoreClipboard(savedItems, to: pasteboard)
+
+        Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
+        for _ in text {
+            Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
+        }
+        Self.injectUnicode(converted)
+
+        if UserDefaults.standard.switchLayoutAfterConversion {
+            InputSourceSwitcher.switchTo(direction: direction)
+        }
+    }
+
+    // MARK: - Pasteboard helpers (static + internal — tests drive them directly)
+
+    /// Snapshot every type+data pair on the pasteboard so we can re-create the
+    /// items later. Reads happen synchronously on the caller's queue.
+    static func snapshot(of pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
+        return pasteboard.pasteboardItems?.map { item -> [NSPasteboard.PasteboardType: Data] in
             var dict: [NSPasteboard.PasteboardType: Data] = [:]
             for type in item.types {
                 if let data = item.data(forType: type) {
@@ -20,107 +113,20 @@ class TextSwitcher {
                 }
             }
             return dict
-        }
-
-        // 2. Copy selected text via Cmd+C
-        pasteboard.clearContents()
-        simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
-
-        // 3. Wait for clipboard to update, then process
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self else { return }
-
-            // Check if clipboard actually changed (i.e., something was selected)
-            guard pasteboard.changeCount != savedChangeCount,
-                  let text = pasteboard.string(forType: .string),
-                  !text.isEmpty
-            else {
-                // Nothing was selected — restore and bail
-                self.restoreClipboard(savedItems, to: pasteboard)
-                return
-            }
-
-            // 4. Check we have enough layouts to convert
-            guard KeyboardLayoutMap.installedLayouts().count >= 2 else {
-                self.showSingleLayoutNotification()
-                self.restoreClipboard(savedItems, to: pasteboard)
-                return
-            }
-
-            // 5. Convert
-            let (converted, direction) = LayoutConverter.convert(text)
-
-            // 6. Delete selected text, then paste converted text
-            //    In GUI apps Cmd+V replaces the selection, but terminal apps
-            //    (Terminal, iTerm, Claude Code) paste without replacing because
-            //    terminal selection is a visual overlay — the shell input buffer
-            //    doesn't track it.
-            //    Universal fix: Right Arrow deselects and moves cursor to the end
-            //    of the selection (GUI) or is a no-op at end-of-line (terminal),
-            //    then N × Backspace removes exactly the original characters.
-            self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
-            for _ in text {
-                self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
-            }
-            pasteboard.clearContents()
-            pasteboard.setString(converted, forType: .string)
-            self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-
-            // 7. Switch keyboard layout if the user has enabled this
-            if UserDefaults.standard.switchLayoutAfterConversion {
-                InputSourceSwitcher.switchTo(direction: direction)
-            }
-
-            // 8. Restore original clipboard after paste completes.
-            //    We just posted Right Arrow + N × Backspace + Cmd+V (2N+4 events).
-            //    Electron apps (Slack, Discord, VS Code) process keyboard events
-            //    through an IPC queue and can take well over 400 ms to drain it
-            //    for longer text. If we restore before the host reads the
-            //    clipboard for Cmd+V, the original (pre-conversion) clipboard
-            //    text is pasted instead of the converted text — see issue
-            //    discovered by typing a long phrase in the wrong layout in Slack.
-            //    Scale the delay with text length and only restore if our
-            //    converted text is still on the clipboard.
-            let delay = Self.clipboardRestoreDelay(forTextLength: text.count)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                Self.restoreClipboardIfStillOurs(
-                    savedItems: savedItems,
-                    expectedConverted: converted,
-                    on: pasteboard
-                )
-            }
-        }
+        } ?? []
     }
 
-    /// Delay before restoring the user's original clipboard after Cmd+V.
-    /// Must be long enough for the focused application to finish processing
-    /// the deselect + backspaces + paste sequence we posted. The coefficient
-    /// 0.02 s/character is empirical, calibrated against Slack/Electron on the
-    /// dev machine — it's a heuristic, not a derived constant. Bounded so the
-    /// user's clipboard isn't held hostage on pathological input.
-    static func clipboardRestoreDelay(forTextLength length: Int) -> TimeInterval {
-        let base: TimeInterval = 0.4
-        let perCharacter: TimeInterval = 0.02
-        let maxDelay: TimeInterval = 3.0
-        return min(maxDelay, base + perCharacter * Double(length))
-    }
-
-    /// Restore the user's original clipboard, but only if the clipboard still
-    /// contains the converted text we put there. If it doesn't, the host app
-    /// either already consumed it for Cmd+V (we're racing safely) or the user
-    /// copied something else (don't stomp on their action). Returns whether
-    /// a restore happened. Static + internal so tests can drive it.
+    /// Re-populate the pasteboard with the previously snapshotted items.
+    /// Returns `true` iff anything was written.
     @discardableResult
-    static func restoreClipboardIfStillOurs(
-        savedItems: [[NSPasteboard.PasteboardType: Data]]?,
-        expectedConverted: String,
-        on pasteboard: NSPasteboard
+    static func restoreClipboard(
+        _ items: [[NSPasteboard.PasteboardType: Data]],
+        to pasteboard: NSPasteboard
     ) -> Bool {
-        guard pasteboard.string(forType: .string) == expectedConverted else { return false }
-        guard let savedItems, !savedItems.isEmpty else { return false }
-        let pasteboardItems = savedItems.map { itemDict -> NSPasteboardItem in
+        guard !items.isEmpty else { return false }
+        let pasteboardItems = items.map { dict -> NSPasteboardItem in
             let item = NSPasteboardItem()
-            for (type, data) in itemDict {
+            for (type, data) in dict {
                 item.setData(data, forType: type)
             }
             return item
@@ -130,33 +136,79 @@ class TextSwitcher {
         return true
     }
 
-    // MARK: - Clipboard
-
-    private func restoreClipboard(_ items: [[NSPasteboard.PasteboardType: Data]]?, to pasteboard: NSPasteboard) {
-        guard let items, !items.isEmpty else { return }
-        let pasteboardItems = items.map { itemDict -> NSPasteboardItem in
-            let item = NSPasteboardItem()
-            for (type, data) in itemDict {
-                item.setData(data, forType: type)
+    /// Wait on the main queue (without blocking it) for `pasteboard.changeCount`
+    /// to differ from `initialChangeCount`, or for `timeout` to elapse.
+    /// `completion` is always called exactly once, on the main queue, with
+    /// `true` if the clipboard changed and `false` on timeout.
+    static func pollForClipboardChange(
+        initialChangeCount: Int,
+        timeout: TimeInterval,
+        pollInterval: TimeInterval,
+        pasteboard: NSPasteboard,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        func poll() {
+            if pasteboard.changeCount != initialChangeCount {
+                completion(true)
+                return
             }
-            return item
+            if Date() >= deadline {
+                completion(false)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval, execute: poll)
         }
-        pasteboard.clearContents()
-        pasteboard.writeObjects(pasteboardItems)
+        poll()
     }
 
-    // MARK: - Keyboard Simulation
+    // MARK: - Unicode keyboard injection
 
-    private func simulateKeyStroke(keyCode: CGKeyCode, flags: CGEventFlags) {
-        let source = CGEventSource(stateID: .combinedSessionState)
+    /// Post the converted text as a sequence of synthetic Unicode keyboard
+    /// events. This is the modern macOS substitute for clipboard-based paste:
+    /// no Cmd+V, no clipboard state, no race.
+    static func injectUnicode(_ string: String) {
+        let chunks = chunkUTF16(string, maxCodeUnits: unicodeChunkLimit)
+        for (offset, chunk) in chunks.enumerated() {
+            chunk.withUnsafeBufferPointer { buffer in
+                postUnicodeEvent(buffer: buffer, keyDown: true)
+                postUnicodeEvent(buffer: buffer, keyDown: false)
+            }
+            if offset < chunks.count - 1 {
+                usleep(interChunkDelay)
+            }
+        }
+    }
 
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+    private static func postUnicodeEvent(buffer: UnsafeBufferPointer<UniChar>, keyDown: Bool) {
+        guard let event = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: keyDown)
         else { return }
+        event.flags = []
+        event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+        event.post(tap: .cghidEventTap)
+    }
 
+    /// Split `string` into UTF-16 segments of at most `maxCodeUnits` units.
+    /// UTF-16 is the right granularity: `CGEventKeyboardSetUnicodeString`
+    /// takes a `UniChar` (UInt16) buffer with a length expressed in code
+    /// units. Empty input yields `[]`. `maxCodeUnits` must be positive.
+    static func chunkUTF16(_ string: String, maxCodeUnits: Int) -> [[UniChar]] {
+        precondition(maxCodeUnits > 0, "maxCodeUnits must be positive")
+        let utf16 = Array(string.utf16)
+        guard !utf16.isEmpty else { return [] }
+        return stride(from: 0, to: utf16.count, by: maxCodeUnits).map { start in
+            Array(utf16[start..<min(start + maxCodeUnits, utf16.count)])
+        }
+    }
+
+    // MARK: - Keyboard simulation
+
+    static func simulateKeyStroke(keyCode: CGKeyCode, flags: CGEventFlags) {
+        guard let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCode, keyDown: false)
+        else { return }
         keyDown.flags = flags
         keyUp.flags = flags
-
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
     }
