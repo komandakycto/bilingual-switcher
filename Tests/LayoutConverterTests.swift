@@ -226,4 +226,65 @@ final class LayoutConverterTests: XCTestCase {
             XCTAssertEqual(roundtrip, original, "Roundtrip for '\(original)'")
         }
     }
+
+    // MARK: - Stress + Performance
+    //
+    // Each block scales by a known unit ("ghbdtn " → "привет ", 7 chars) so
+    // expected output is trivially derivable and we test both correctness and
+    // throughput on the same fixture.
+
+    /// One typical sentence (~50 chars).
+    private static let oneSentenceReps = 7
+    /// 2-3 sentences (~210 chars) — user-asked size.
+    private static let twoThreeSentencesReps = 30
+    /// ~10 sentences (~700 chars) — user-asked size.
+    private static let tenSentencesReps = 100
+    /// Stress (~5 KB) — well past any realistic single selection.
+    private static let stressReps = 700
+
+    private func makeFixture(reps: Int) -> (input: String, expected: String) {
+        (String(repeating: "ghbdtn ", count: reps),
+         String(repeating: "привет ", count: reps))
+    }
+
+    func testStress_LongTextProducesExpectedOutput() throws {
+        try requireEnRu()
+        let fixture = makeFixture(reps: Self.tenSentencesReps)
+        let (result, _) = LayoutConverter.convert(fixture.input)
+        XCTAssertEqual(result, fixture.expected,
+                       "Long-input conversion must match the per-token expected output")
+    }
+
+    func testStress_VeryLongInputDoesNotCorruptOutput() throws {
+        try requireEnRu()
+        let fixture = makeFixture(reps: Self.stressReps)
+        let (result, _) = LayoutConverter.convert(fixture.input)
+        XCTAssertEqual(result.count, fixture.expected.count,
+                       "Output length must match input character-for-character (no drops)")
+        XCTAssertEqual(result, fixture.expected)
+    }
+
+    func testPerformance_ConvertOneSentence() throws {
+        try requireEnRu()
+        let input = makeFixture(reps: Self.oneSentenceReps).input
+        measure { _ = LayoutConverter.convert(input) }
+    }
+
+    func testPerformance_ConvertTwoThreeSentences() throws {
+        try requireEnRu()
+        let input = makeFixture(reps: Self.twoThreeSentencesReps).input
+        measure { _ = LayoutConverter.convert(input) }
+    }
+
+    func testPerformance_ConvertTenSentences() throws {
+        try requireEnRu()
+        let input = makeFixture(reps: Self.tenSentencesReps).input
+        measure { _ = LayoutConverter.convert(input) }
+    }
+
+    func testPerformance_ConvertStress() throws {
+        try requireEnRu()
+        let input = makeFixture(reps: Self.stressReps).input
+        measure { _ = LayoutConverter.convert(input) }
+    }
 }

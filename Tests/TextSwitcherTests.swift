@@ -124,6 +124,14 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(TextSwitcher.unicodeChunkLimit, 20)
     }
 
+    // MARK: - chunkUTF16 performance
+
+    func testChunkUTF16_PerformanceOnLongMixedScriptText() {
+        let unit = "Hello мир 🙂 "
+        let text = String(repeating: unit, count: 200)  // ~2400 UTF-16 units
+        measure { _ = TextSwitcher.chunkUTF16(text, maxCodeUnits: TextSwitcher.unicodeChunkLimit) }
+    }
+
     // MARK: - snapshot / restore
 
     func testSnapshotOfEmptyClipboardReturnsEmpty() {
