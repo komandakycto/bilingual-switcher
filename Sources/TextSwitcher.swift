@@ -27,6 +27,23 @@ class TextSwitcher {
     /// 1–4 ms delay. Conservative middle ground.
     private static let interChunkDelay: useconds_t = 2_000
 
+    /// Maximum time to block waiting for hotkey modifiers to release before
+    /// posting keystrokes. Real release latency is typically 50–150 ms; we
+    /// give up after 300 ms and proceed anyway so we don't hang forever if
+    /// the user genuinely holds a modifier for another reason.
+    private static let modifierReleaseTimeout: TimeInterval = 0.3
+    private static let modifierReleasePollInterval: TimeInterval = 0.005
+
+    /// Modifiers that hijack our synthesized keystrokes when held:
+    /// - Cmd+Backspace = "delete to start of line" in most text fields
+    /// - Cmd+letter = menu/keyboard shortcut, eats Unicode injection
+    /// - Opt+Backspace = "delete word"
+    /// Shift is omitted: it has no shortcut role for our keys and doesn't
+    /// affect `keyboardSetUnicodeString` (the unicode string is what types,
+    /// not the virtual key).
+    private static let hijackingModifiers: CGEventFlags =
+        [.maskCommand, .maskAlternate, .maskControl]
+
     /// One CGEventSource reused for every posted event. Constructing this
     /// object per event was a measurable cost in the old code — for a 50-char
     /// selection we'd build it ~100 times per hotkey press.
@@ -93,6 +110,14 @@ class TextSwitcher {
         // read the clipboard for Cmd+V after our restore timer had already
         // put the original content back.
         Self.restoreClipboard(savedItems, to: pasteboard)
+
+        // Polling Cmd+C completes in ~30–80 ms on Slack — often before the
+        // user has physically released the hotkey. With Cmd still held,
+        // Backspace becomes Cmd+Backspace (delete entire line in one go)
+        // and Unicode events become Cmd+char (eaten as shortcuts in
+        // Slack/Chromium). Wait until the user has lifted the modifier
+        // keys, with a generous upper bound.
+        Self.waitForModifierRelease()
 
         Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
         for _ in text {
@@ -166,6 +191,29 @@ class TextSwitcher {
             DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval, execute: poll)
         }
         poll()
+    }
+
+    // MARK: - Modifier-release wait
+
+    /// Block until none of `mask` is currently held on the hardware keyboard,
+    /// or `timeout` elapses. Synchronous so we can sequence cleanly with the
+    /// subsequent keystroke posts. Reads via `.hidSystemState` because that
+    /// reflects only physical keys, regardless of any synthesized events we
+    /// or others have injected.
+    @discardableResult
+    static func waitForModifierRelease(
+        mask: CGEventFlags = hijackingModifiers,
+        timeout: TimeInterval = modifierReleaseTimeout,
+        pollInterval: TimeInterval = modifierReleasePollInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if CGEventSource.flagsState(.hidSystemState).isDisjoint(with: mask) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
+        return false
     }
 
     // MARK: - Unicode keyboard injection

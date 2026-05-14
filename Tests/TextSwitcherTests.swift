@@ -124,6 +124,38 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(TextSwitcher.unicodeChunkLimit, 20)
     }
 
+    // MARK: - Modifier-release wait
+
+    /// In a CI/test environment no hardware keys are held, so the wait must
+    /// return immediately. Catches regressions where the function busy-waits
+    /// or sleeps regardless of state.
+    func testWaitForModifierRelease_ReturnsImmediatelyWhenNothingHeld() {
+        let start = Date()
+        let cleared = TextSwitcher.waitForModifierRelease(
+            mask: [.maskCommand, .maskAlternate, .maskControl],
+            timeout: 0.5,
+            pollInterval: 0.01
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertTrue(cleared, "Should report success when modifiers are not held")
+        XCTAssertLessThan(elapsed, 0.05,
+                          "Should return well under the timeout when state is already clean")
+    }
+
+    /// An empty mask means "no modifiers are problematic", so we must
+    /// short-circuit and never sleep.
+    func testWaitForModifierRelease_EmptyMaskReturnsImmediately() {
+        let start = Date()
+        let cleared = TextSwitcher.waitForModifierRelease(
+            mask: [],
+            timeout: 0.5,
+            pollInterval: 0.01
+        )
+        XCTAssertTrue(cleared)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.02)
+    }
+
     // MARK: - chunkUTF16 performance
 
     func testChunkUTF16_PerformanceOnLongMixedScriptText() {
