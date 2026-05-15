@@ -176,6 +176,49 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: -5), 0.10, accuracy: 0.0001)
     }
 
+    // MARK: - Per-app settle delay routing
+
+    func testSettleDelay_UsesScaledDelayForKnownSlowApp_Slack() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.tinyspeck.slackmacgap")
+        XCTAssertEqual(delay, TextSwitcher.postBackspaceDelay(forCharCount: 65), accuracy: 0.0001)
+        XCTAssertGreaterThan(delay, 0.5, "Slack must use the long, scaled delay")
+    }
+
+    func testSettleDelay_UsesScaledDelayForKnownSlowApp_VSCode() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.microsoft.VSCode")
+        XCTAssertGreaterThan(delay, 0.5)
+    }
+
+    func testSettleDelay_UsesShortDelayForNativeCocoaApp() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.apple.Notes")
+        XCTAssertLessThan(delay, 0.1, "Native apps should not pay the Electron tax")
+        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
+    }
+
+    func testSettleDelay_UsesShortDelayForTerminal() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.apple.Terminal")
+        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
+    }
+
+    func testSettleDelay_UsesShortDelayForJetBrains() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.jetbrains.goland")
+        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
+    }
+
+    /// Nil bundle (frontmostApplication was unavailable) — default to the
+    /// optimistic short delay. If the user runs into a misbehaving app we
+    /// don't know about, they'll report it and we'll add it to the slow set.
+    func testSettleDelay_UsesShortDelayWhenBundleIsUnknown() {
+        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: nil)
+        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
+    }
+
+    func testSettleDelay_ShortDelayDoesNotScaleWithCharCount() {
+        let short = TextSwitcher.settleDelay(forCharCount: 5, bundleID: "com.apple.Notes")
+        let long = TextSwitcher.settleDelay(forCharCount: 500, bundleID: "com.apple.Notes")
+        XCTAssertEqual(short, long, "Fast apps don't need scaled delay")
+    }
+
     // MARK: - chunkUTF16 performance
 
     func testChunkUTF16_PerformanceOnLongMixedScriptText() {

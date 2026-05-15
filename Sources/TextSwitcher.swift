@@ -33,17 +33,39 @@ class TextSwitcher {
     private static let modifierReleaseTimeout: TimeInterval = 0.5
     private static let modifierReleasePollInterval: TimeInterval = 0.005
 
-    /// Wait between the last backspace and the first Unicode-injection event.
-    /// Slack's Chromium renderer drains backspaces ~asynchronously from its
-    /// main process IPC queue; even when our HID events have all flowed to
-    /// Slack, the renderer is still applying them. If Unicode injection
-    /// fires while late backspaces are still being applied, the result is
-    /// "typed text appears briefly, then later backspaces eat it". Empirical
-    /// drain rate is ~10 ms per character. Min/max bound the latency for
-    /// short text and pathological long text respectively.
+    /// Wait between the last backspace and the first Unicode-injection event
+    /// FOR SLOW-DRAIN apps (Electron). Slack's Chromium renderer drains
+    /// backspaces asynchronously from its main-process IPC queue; even when
+    /// our HID events have all flowed in, the renderer is still applying
+    /// them. If injection fires while late backspaces are still being
+    /// applied, the result is "typed text appears briefly, then later
+    /// backspaces eat it". Empirical drain rate is ~10 ms per character.
     private static let postBackspacePerChar: TimeInterval = 0.010
     private static let postBackspaceMin: TimeInterval = 0.10
     private static let postBackspaceMax: TimeInterval = 1.5
+
+    /// Settle delay for everything else. Native Cocoa apps (Notes, Mail,
+    /// Safari, Xcode) and well-behaved non-Electron apps (Terminal, iTerm,
+    /// JetBrains IDEs) process backspaces synchronously fast enough that a
+    /// short fixed pause is sufficient.
+    private static let fastSettleDelay: TimeInterval = 0.05
+
+    /// Bundle IDs of apps known to need the long, scaled settle delay
+    /// because they're Electron-based (or otherwise have an asynchronous
+    /// renderer queue that delivers our backspaces late). Add to this set
+    /// when a new app exhibits the "typed text gets eaten" symptom.
+    private static let slowDrainAppBundles: Set<String> = [
+        "com.tinyspeck.slackmacgap",          // Slack
+        "com.hnc.Discord",                    // Discord
+        "com.microsoft.VSCode",               // VS Code
+        "com.microsoft.VSCodeInsiders",       // VS Code Insiders
+        "notion.id",                          // Notion
+        "com.linear",                         // Linear
+        "com.figma.Desktop",                  // Figma
+        "com.spotify.client",                 // Spotify
+        "net.whatsapp.WhatsApp",              // WhatsApp Desktop
+        "com.electron.electron"               // generic Electron fallback
+    ]
 
     /// Modifiers that hijack our synthesized keystrokes when held:
     /// - Cmd+Backspace = "delete to start of line" in most text fields
@@ -101,6 +123,12 @@ class TextSwitcher {
 
         Self.diag("--- switchSelectedText start ---")
 
+        // Capture the focused-app bundle ID up front; we'll need it later
+        // to pick the settle delay. Doing it before Cmd+C makes it robust
+        // against any focus transitions during polling.
+        let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        Self.diag("front app: \(frontBundleID ?? "<unknown>")")
+
         let pasteboard = NSPasteboard.general
         let savedItems = Self.snapshot(of: pasteboard)
         pasteboard.clearContents()
@@ -125,7 +153,8 @@ class TextSwitcher {
                 copied: didChange,
                 copiedText: pasteboard.string(forType: .string),
                 savedItems: savedItems,
-                pasteboard: pasteboard
+                pasteboard: pasteboard,
+                frontBundleID: frontBundleID
             )
         }
     }
@@ -134,7 +163,8 @@ class TextSwitcher {
         copied: Bool,
         copiedText: String?,
         savedItems: [[NSPasteboard.PasteboardType: Data]],
-        pasteboard: NSPasteboard
+        pasteboard: NSPasteboard,
+        frontBundleID: String?
     ) {
         Self.diag("poll completion copied=\(copied) textLen=\(copiedText?.count ?? -1)")
 
@@ -178,8 +208,8 @@ class TextSwitcher {
         for _ in text {
             Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
         }
-        let settle = Self.postBackspaceDelay(forCharCount: text.count)
-        Self.diag("posted \(text.count) backspaces, settling for \(Int(settle * 1000)) ms")
+        let settle = Self.settleDelay(forCharCount: text.count, bundleID: frontBundleID)
+        Self.diag("posted \(text.count) backspaces, settling for \(Int(settle * 1000)) ms (bundle=\(frontBundleID ?? "?"))")
 
         // Give the host time to drain backspaces from its IPC queue before
         // the renderer sees Unicode events. Slack/Electron drop or mis-route
@@ -196,10 +226,25 @@ class TextSwitcher {
     }
 
     /// Settle time between the last backspace and the first Unicode-injection
-    /// chunk. Scales with deletion count, clamped to a sane window.
+    /// chunk for known slow-drain (Electron) apps. Scales with deletion
+    /// count, clamped to a sane window.
     static func postBackspaceDelay(forCharCount count: Int) -> TimeInterval {
         let raw = postBackspaceMin + postBackspacePerChar * Double(max(0, count))
         return min(max(postBackspaceMin, raw), postBackspaceMax)
+    }
+
+    /// Pick the right settle delay for the focused application.
+    /// Slow-drain (Electron) apps need a generous scaled delay; everything
+    /// else gets a short fixed pause that's enough for native Cocoa /
+    /// Terminal / JetBrains-style input pipelines.
+    static func settleDelay(
+        forCharCount count: Int,
+        bundleID: String?
+    ) -> TimeInterval {
+        if let id = bundleID, slowDrainAppBundles.contains(id) {
+            return postBackspaceDelay(forCharCount: count)
+        }
+        return fastSettleDelay
     }
 
     // MARK: - Pasteboard helpers (static + internal — tests drive them directly)
