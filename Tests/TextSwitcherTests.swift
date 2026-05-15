@@ -156,6 +156,26 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 0.02)
     }
 
+    // MARK: - Post-backspace settle delay
+
+    func testPostBackspaceDelay_FloorsAtMinForShortText() {
+        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 0), 0.05, accuracy: 0.0001)
+        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 10), 0.06, accuracy: 0.0001)
+    }
+
+    func testPostBackspaceDelay_ScalesForTypicalText() {
+        // 65 chars (the failing reproducer length) → base 0.05 + 65*0.001 = 0.115 s
+        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 65), 0.115, accuracy: 0.0001)
+    }
+
+    func testPostBackspaceDelay_CapsAtMaxForVeryLongText() {
+        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 10_000), 0.4, accuracy: 0.0001)
+    }
+
+    func testPostBackspaceDelay_HandlesNegativeGracefully() {
+        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: -5), 0.05, accuracy: 0.0001)
+    }
+
     // MARK: - chunkUTF16 performance
 
     func testChunkUTF16_PerformanceOnLongMixedScriptText() {

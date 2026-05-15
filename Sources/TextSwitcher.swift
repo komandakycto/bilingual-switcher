@@ -28,11 +28,19 @@ class TextSwitcher {
     private static let interChunkDelay: useconds_t = 2_000
 
     /// Maximum time to block waiting for hotkey modifiers to release before
-    /// posting keystrokes. Real release latency is typically 50–150 ms; we
-    /// give up after 300 ms and proceed anyway so we don't hang forever if
-    /// the user genuinely holds a modifier for another reason.
-    private static let modifierReleaseTimeout: TimeInterval = 0.3
+    /// posting keystrokes. Real release latency is typically 50–200 ms;
+    /// 500 ms covers users who hold the hotkey longer.
+    private static let modifierReleaseTimeout: TimeInterval = 0.5
     private static let modifierReleasePollInterval: TimeInterval = 0.005
+
+    /// Wait between the last backspace and the first Unicode-injection event.
+    /// Slack/Electron drain backspaces from their IPC queue more slowly than
+    /// we post; firing Unicode events back-to-back can race with the
+    /// renderer's text-input state and lose chunks. Scales with deletion
+    /// count: 1 ms per character, clamped.
+    private static let postBackspacePerChar: TimeInterval = 0.001
+    private static let postBackspaceMin: TimeInterval = 0.05
+    private static let postBackspaceMax: TimeInterval = 0.4
 
     /// Modifiers that hijack our synthesized keystrokes when held:
     /// - Cmd+Backspace = "delete to start of line" in most text fields
@@ -57,12 +65,15 @@ class TextSwitcher {
             return
         }
 
+        NSLog("BS: switchSelectedText start")
+
         let pasteboard = NSPasteboard.general
         let savedItems = Self.snapshot(of: pasteboard)
         pasteboard.clearContents()
         let baselineChangeCount = pasteboard.changeCount
 
         Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
+        NSLog("BS: posted Cmd+C, baselineChangeCount=\(baselineChangeCount)")
 
         // Capture self strongly. The clipboard was just cleared; if a
         // `[weak self]` early-returned because self deallocated mid-poll,
@@ -91,7 +102,10 @@ class TextSwitcher {
         savedItems: [[NSPasteboard.PasteboardType: Data]],
         pasteboard: NSPasteboard
     ) {
+        NSLog("BS: poll completion copied=\(copied) textLen=\(copiedText?.count ?? -1)")
+
         guard copied, let text = copiedText, !text.isEmpty else {
+            NSLog("BS: bail — no text from clipboard")
             Self.restoreClipboard(savedItems, to: pasteboard)
             return
         }
@@ -103,6 +117,8 @@ class TextSwitcher {
         }
 
         let (converted, direction) = LayoutConverter.convert(text)
+        let chunkCount = Self.chunkUTF16(converted, maxCodeUnits: Self.unicodeChunkLimit).count
+        NSLog("BS: text=\(text.prefix(120)) | converted=\(converted.prefix(120)) | chunks=\(chunkCount)")
 
         // The Unicode-injection paste path does NOT touch the pasteboard, so
         // we can restore the user's clipboard right now — before posting any
@@ -117,17 +133,37 @@ class TextSwitcher {
         // and Unicode events become Cmd+char (eaten as shortcuts in
         // Slack/Chromium). Wait until the user has lifted the modifier
         // keys, with a generous upper bound.
-        Self.waitForModifierRelease()
+        let flagsBefore = CGEventSource.flagsState(.hidSystemState)
+        NSLog("BS: flags before modifier wait: 0x\(String(flagsBefore.rawValue, radix: 16))")
+        let cleared = Self.waitForModifierRelease()
+        let flagsAfter = CGEventSource.flagsState(.hidSystemState)
+        NSLog("BS: flags after wait: 0x\(String(flagsAfter.rawValue, radix: 16)) cleared=\(cleared)")
 
         Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
         for _ in text {
             Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
         }
+        NSLog("BS: posted \(text.count) backspaces, now settling before injection")
+
+        // Give the host time to drain backspaces from its IPC queue before
+        // the renderer sees Unicode events. Slack/Electron drop or mis-route
+        // unicode chunks if they arrive while backspace processing is
+        // still draining.
+        Thread.sleep(forTimeInterval: Self.postBackspaceDelay(forCharCount: text.count))
+
         Self.injectUnicode(converted)
+        NSLog("BS: injectUnicode done")
 
         if UserDefaults.standard.switchLayoutAfterConversion {
             InputSourceSwitcher.switchTo(direction: direction)
         }
+    }
+
+    /// Settle time between the last backspace and the first Unicode-injection
+    /// chunk. Scales with deletion count, clamped to a sane window.
+    static func postBackspaceDelay(forCharCount count: Int) -> TimeInterval {
+        let raw = postBackspaceMin + postBackspacePerChar * Double(max(0, count))
+        return min(max(postBackspaceMin, raw), postBackspaceMax)
     }
 
     // MARK: - Pasteboard helpers (static + internal — tests drive them directly)
