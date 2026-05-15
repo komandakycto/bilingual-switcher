@@ -33,39 +33,64 @@ class TextSwitcher {
     private static let modifierReleaseTimeout: TimeInterval = 0.5
     private static let modifierReleasePollInterval: TimeInterval = 0.005
 
-    /// Wait between the last backspace and the first Unicode-injection event
-    /// FOR SLOW-DRAIN apps (Electron). Slack's Chromium renderer drains
-    /// backspaces asynchronously from its main-process IPC queue; even when
-    /// our HID events have all flowed in, the renderer is still applying
-    /// them. If injection fires while late backspaces are still being
-    /// applied, the result is "typed text appears briefly, then later
-    /// backspaces eat it". Empirical drain rate is ~10 ms per character.
-    private static let postBackspacePerChar: TimeInterval = 0.010
-    private static let postBackspaceMin: TimeInterval = 0.10
-    private static let postBackspaceMax: TimeInterval = 1.5
+    /// Small settle pause between backspace flood and Unicode injection in
+    /// the terminal-fallback path. Terminals drain their input buffer
+    /// synchronously, so 50 ms is enough — no renderer IPC queue to worry
+    /// about, unlike Electron.
+    private static let terminalSettleDelay: TimeInterval = 0.05
 
-    /// Settle delay for everything else. Native Cocoa apps (Notes, Mail,
-    /// Safari, Xcode) and well-behaved non-Electron apps (Terminal, iTerm,
-    /// JetBrains IDEs) process backspaces synchronously fast enough that a
-    /// short fixed pause is sufficient.
-    private static let fastSettleDelay: TimeInterval = 0.05
-
-    /// Bundle IDs of apps known to need the long, scaled settle delay
-    /// because they're Electron-based (or otherwise have an asynchronous
-    /// renderer queue that delivers our backspaces late). Add to this set
-    /// when a new app exhibits the "typed text gets eaten" symptom.
-    private static let slowDrainAppBundles: Set<String> = [
-        "com.tinyspeck.slackmacgap",          // Slack
-        "com.hnc.Discord",                    // Discord
-        "com.microsoft.VSCode",               // VS Code
-        "com.microsoft.VSCodeInsiders",       // VS Code Insiders
-        "notion.id",                          // Notion
-        "com.linear",                         // Linear
-        "com.figma.Desktop",                  // Figma
-        "com.spotify.client",                 // Spotify
-        "net.whatsapp.WhatsApp",              // WhatsApp Desktop
-        "com.electron.electron"               // generic Electron fallback
+    /// Bundle IDs that need the backspace-flood path because their visible
+    /// text "selection" is a screen overlay rather than a real selection in
+    /// the input buffer — typing does not replace what looks selected.
+    /// Anything not in this set uses the selection-replace path, which
+    /// works in every app that respects standard "typing replaces
+    /// selection" semantics (all Cocoa, Chromium contenteditable, Swing).
+    private static let terminalBundles: Set<String> = [
+        "com.apple.Terminal",                  // Terminal.app
+        "com.googlecode.iterm2",               // iTerm2
+        "co.zeit.hyper",                       // Hyper
+        "com.github.wez.wezterm",              // WezTerm
+        "com.mitchellh.ghostty",               // Ghostty
+        "net.kovidgoyal.kitty",                // kitty
+        "io.alacritty",                        // Alacritty
+        "dev.warp.Warp-Stable",                // Warp
+        "dev.warp.Warp-Preview"
     ]
+
+    /// How we deliver the converted text to the focused application.
+    enum InjectionStrategy: String {
+        /// Default. After Cmd+C the selection is still active in the host
+        /// app; we just type the converted text via Unicode injection and
+        /// the standard "typing replaces selection" behavior of every
+        /// modern text widget (Cocoa, Chromium contenteditable, Java Swing)
+        /// does the deletion for us. One injected keystroke per Unicode
+        /// chunk — no backspace flood, no race with renderer-queue drain.
+        case selectionReplace
+
+        /// Terminal fallback. Shell input buffers don't track visual
+        /// selection, so typing appends rather than replaces. We deselect
+        /// (Right Arrow) and erase character-by-character (N × Backspace)
+        /// before injecting the converted text.
+        case backspaceFlood
+    }
+
+    /// UserDefaults key for forcing a strategy. Hidden — not exposed in
+    /// preferences UI; used for triage via `defaults write`.
+    private static let backendOverrideKey = "BILINGUAL_BACKEND"
+
+    /// Decide how to deliver converted text to the focused app. A user
+    /// override via UserDefaults wins; otherwise terminal bundle IDs route
+    /// to the flood path and everything else to selection-replace.
+    static func pickStrategy(bundleID: String?) -> InjectionStrategy {
+        if let raw = UserDefaults.standard.string(forKey: backendOverrideKey),
+           let forced = InjectionStrategy(rawValue: raw) {
+            return forced
+        }
+        if let id = bundleID, terminalBundles.contains(id) {
+            return .backspaceFlood
+        }
+        return .selectionReplace
+    }
 
     /// Modifiers that hijack our synthesized keystrokes when held:
     /// - Cmd+Backspace = "delete to start of line" in most text fields
@@ -185,66 +210,49 @@ class TextSwitcher {
         Self.diag("text=\(text.prefix(120))")
         Self.diag("converted=\(converted.prefix(120)) chunks=\(chunkCount)")
 
-        // The Unicode-injection paste path does NOT touch the pasteboard, so
-        // we can restore the user's clipboard right now — before posting any
-        // keystrokes. This eliminates the prior race in which a slow host
-        // read the clipboard for Cmd+V after our restore timer had already
-        // put the original content back.
+        // Unicode injection never touches the pasteboard, so we can restore
+        // the user's clipboard right now — before posting any keystrokes.
+        // No race between paste and restore is possible.
         Self.restoreClipboard(savedItems, to: pasteboard)
 
-        // Polling Cmd+C completes in ~30–80 ms on Slack — often before the
-        // user has physically released the hotkey. With Cmd still held,
-        // Backspace becomes Cmd+Backspace (delete entire line in one go)
-        // and Unicode events become Cmd+char (eaten as shortcuts in
-        // Slack/Chromium). Wait until the user has lifted the modifier
-        // keys, with a generous upper bound.
+        // Polling Cmd+C completes in ~30–80 ms — often before the user has
+        // physically released the hotkey. With Cmd still held, our
+        // synthesized events get hijacked: Cmd+letter becomes a menu
+        // shortcut, Cmd+Backspace deletes the whole field. Wait it out.
         let flagsBefore = CGEventSource.flagsState(.hidSystemState)
         Self.diag("flags before modifier wait: 0x\(String(flagsBefore.rawValue, radix: 16))")
         let cleared = Self.waitForModifierRelease()
         let flagsAfter = CGEventSource.flagsState(.hidSystemState)
         Self.diag("flags after wait: 0x\(String(flagsAfter.rawValue, radix: 16)) cleared=\(cleared)")
 
-        Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
-        for _ in text {
-            Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
+        let strategy = Self.pickStrategy(bundleID: frontBundleID)
+        Self.diag("strategy: \(strategy.rawValue) (bundle=\(frontBundleID ?? "?"))")
+
+        switch strategy {
+        case .selectionReplace:
+            // The Cmd+C left the user's selection intact. Typing into a
+            // live selection replaces it in every text widget that
+            // respects standard editing semantics — Cocoa NSText*, Chromium
+            // contenteditable (Slack/Discord/VS Code), JTextComponent
+            // (JetBrains IDEs). No deletion events needed.
+            Self.injectUnicode(converted)
+
+        case .backspaceFlood:
+            // Terminals don't see the visual selection at the shell-input
+            // level, so typing appends rather than replaces. Deselect and
+            // erase character-by-character first.
+            Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_RightArrow), flags: [])
+            for _ in text {
+                Self.simulateKeyStroke(keyCode: CGKeyCode(kVK_Delete), flags: [])
+            }
+            Thread.sleep(forTimeInterval: Self.terminalSettleDelay)
+            Self.injectUnicode(converted)
         }
-        let settle = Self.settleDelay(forCharCount: text.count, bundleID: frontBundleID)
-        Self.diag("posted \(text.count) backspaces, settling for \(Int(settle * 1000)) ms (bundle=\(frontBundleID ?? "?"))")
-
-        // Give the host time to drain backspaces from its IPC queue before
-        // the renderer sees Unicode events. Slack/Electron drop or mis-route
-        // unicode chunks if they arrive while backspace processing is
-        // still draining.
-        Thread.sleep(forTimeInterval: settle)
-
-        Self.injectUnicode(converted)
-        Self.diag("injectUnicode done")
+        Self.diag("injection done")
 
         if UserDefaults.standard.switchLayoutAfterConversion {
             InputSourceSwitcher.switchTo(direction: direction)
         }
-    }
-
-    /// Settle time between the last backspace and the first Unicode-injection
-    /// chunk for known slow-drain (Electron) apps. Scales with deletion
-    /// count, clamped to a sane window.
-    static func postBackspaceDelay(forCharCount count: Int) -> TimeInterval {
-        let raw = postBackspaceMin + postBackspacePerChar * Double(max(0, count))
-        return min(max(postBackspaceMin, raw), postBackspaceMax)
-    }
-
-    /// Pick the right settle delay for the focused application.
-    /// Slow-drain (Electron) apps need a generous scaled delay; everything
-    /// else gets a short fixed pause that's enough for native Cocoa /
-    /// Terminal / JetBrains-style input pipelines.
-    static func settleDelay(
-        forCharCount count: Int,
-        bundleID: String?
-    ) -> TimeInterval {
-        if let id = bundleID, slowDrainAppBundles.contains(id) {
-            return postBackspaceDelay(forCharCount: count)
-        }
-        return fastSettleDelay
     }
 
     // MARK: - Pasteboard helpers (static + internal — tests drive them directly)

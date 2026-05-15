@@ -156,67 +156,86 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 0.02)
     }
 
-    // MARK: - Post-backspace settle delay
+    // MARK: - Strategy routing
 
-    func testPostBackspaceDelay_FloorsAtMinForShortText() {
-        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 0), 0.10, accuracy: 0.0001)
-        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 5), 0.15, accuracy: 0.0001)
+    func testPickStrategy_UsesSelectionReplaceByDefault() {
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.apple.Notes"),
+            .selectionReplace
+        )
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.tinyspeck.slackmacgap"),
+            .selectionReplace,
+            "Slack uses selection-replace: typing replaces the still-active Cmd+A selection"
+        )
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.microsoft.VSCode"),
+            .selectionReplace
+        )
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.jetbrains.goland"),
+            .selectionReplace
+        )
     }
 
-    func testPostBackspaceDelay_ScalesForTypicalText() {
-        // 65 chars (the failing reproducer length) → 0.10 + 65*0.010 = 0.75 s
-        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 65), 0.75, accuracy: 0.0001)
+    func testPickStrategy_UsesBackspaceFloodForTerminals() {
+        let terminals = [
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.github.wez.wezterm",
+            "com.mitchellh.ghostty",
+            "net.kovidgoyal.kitty",
+            "dev.warp.Warp-Stable"
+        ]
+        for bundle in terminals {
+            XCTAssertEqual(
+                TextSwitcher.pickStrategy(bundleID: bundle),
+                .backspaceFlood,
+                "\(bundle) needs backspace flood — shell input buffer doesn't track visual selection"
+            )
+        }
     }
 
-    func testPostBackspaceDelay_CapsAtMaxForVeryLongText() {
-        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: 10_000), 1.5, accuracy: 0.0001)
+    func testPickStrategy_UsesSelectionReplaceWhenBundleIDIsUnknown() {
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: nil),
+            .selectionReplace,
+            "Unknown app defaults to the modern strategy"
+        )
     }
 
-    func testPostBackspaceDelay_HandlesNegativeGracefully() {
-        XCTAssertEqual(TextSwitcher.postBackspaceDelay(forCharCount: -5), 0.10, accuracy: 0.0001)
+    /// Hidden triage knob: `defaults write com.komandakycto.bilingual-switcher
+    /// BILINGUAL_BACKEND backspaceFlood` forces the flood path in any app —
+    /// useful when an unknown app gets the wrong default.
+    func testPickStrategy_HonorsUserDefaultsOverride() {
+        let key = "BILINGUAL_BACKEND"
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+
+        UserDefaults.standard.set("backspaceFlood", forKey: key)
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.apple.Notes"),
+            .backspaceFlood,
+            "User override must force flood even in a non-terminal app"
+        )
+
+        UserDefaults.standard.set("selectionReplace", forKey: key)
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.apple.Terminal"),
+            .selectionReplace,
+            "User override must force selection-replace even in a terminal"
+        )
     }
 
-    // MARK: - Per-app settle delay routing
+    func testPickStrategy_IgnoresGarbageOverrideValue() {
+        let key = "BILINGUAL_BACKEND"
+        defer { UserDefaults.standard.removeObject(forKey: key) }
 
-    func testSettleDelay_UsesScaledDelayForKnownSlowApp_Slack() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.tinyspeck.slackmacgap")
-        XCTAssertEqual(delay, TextSwitcher.postBackspaceDelay(forCharCount: 65), accuracy: 0.0001)
-        XCTAssertGreaterThan(delay, 0.5, "Slack must use the long, scaled delay")
-    }
-
-    func testSettleDelay_UsesScaledDelayForKnownSlowApp_VSCode() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.microsoft.VSCode")
-        XCTAssertGreaterThan(delay, 0.5)
-    }
-
-    func testSettleDelay_UsesShortDelayForNativeCocoaApp() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.apple.Notes")
-        XCTAssertLessThan(delay, 0.1, "Native apps should not pay the Electron tax")
-        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
-    }
-
-    func testSettleDelay_UsesShortDelayForTerminal() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.apple.Terminal")
-        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
-    }
-
-    func testSettleDelay_UsesShortDelayForJetBrains() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: "com.jetbrains.goland")
-        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
-    }
-
-    /// Nil bundle (frontmostApplication was unavailable) — default to the
-    /// optimistic short delay. If the user runs into a misbehaving app we
-    /// don't know about, they'll report it and we'll add it to the slow set.
-    func testSettleDelay_UsesShortDelayWhenBundleIsUnknown() {
-        let delay = TextSwitcher.settleDelay(forCharCount: 65, bundleID: nil)
-        XCTAssertEqual(delay, 0.05, accuracy: 0.0001)
-    }
-
-    func testSettleDelay_ShortDelayDoesNotScaleWithCharCount() {
-        let short = TextSwitcher.settleDelay(forCharCount: 5, bundleID: "com.apple.Notes")
-        let long = TextSwitcher.settleDelay(forCharCount: 500, bundleID: "com.apple.Notes")
-        XCTAssertEqual(short, long, "Fast apps don't need scaled delay")
+        UserDefaults.standard.set("nonsense", forKey: key)
+        XCTAssertEqual(
+            TextSwitcher.pickStrategy(bundleID: "com.apple.Notes"),
+            .selectionReplace,
+            "Unrecognized override values must fall through to the bundle-ID heuristic"
+        )
     }
 
     // MARK: - chunkUTF16 performance
