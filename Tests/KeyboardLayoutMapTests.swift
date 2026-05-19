@@ -125,6 +125,54 @@ final class KeyboardLayoutMapTests: XCTestCase {
         XCTAssertEqual(capitalA?.shifted, true)
     }
 
+    // MARK: - Character Set Cache
+
+    func testCharacterSetMatchesReverseMapKeys() {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard let us = layouts.first(where: { $0.id.contains("US") || $0.id.contains("ABC") }) else {
+            XCTFail("US layout not found")
+            return
+        }
+
+        let set = KeyboardLayoutMap.characterSet(for: us)
+        let reverse = KeyboardLayoutMap.buildReverseMap(for: us)
+
+        XCTAssertEqual(set, Set(reverse.keys),
+                       "characterSet must be exactly the reverse-map key set")
+    }
+
+    func testCharacterSetIsCachedAcrossCalls() {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard let layout = layouts.first else {
+            XCTFail("No layouts found")
+            return
+        }
+        // First call materializes; second returns the cached instance.
+        // We only verify equality (the cache is private), but identity-stable
+        // membership is what consumers rely on.
+        let first = KeyboardLayoutMap.characterSet(for: layout)
+        let second = KeyboardLayoutMap.characterSet(for: layout)
+        XCTAssertEqual(first, second)
+        XCTAssertFalse(first.isEmpty, "Layout character set must not be empty")
+    }
+
+    func testCharacterSetIsInvalidatedByRebuildMaps() {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard let layout = layouts.first else {
+            XCTFail("No layouts found")
+            return
+        }
+        // Warm cache, then invalidate, then make sure we still get correct data
+        // (we can't observe the cache miss directly, but post-invalidate calls
+        // must keep returning correct content).
+        _ = KeyboardLayoutMap.characterSet(for: layout)
+        KeyboardLayoutMap.rebuildMaps()
+
+        let setAfterRebuild = KeyboardLayoutMap.characterSet(for: layout)
+        XCTAssertFalse(setAfterRebuild.isEmpty,
+                       "characterSet must repopulate cleanly after rebuildMaps()")
+    }
+
     func testReverseMapForRussianLayout() {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard let ru = layouts.first(where: { $0.languages.contains("ru") }) else {

@@ -106,10 +106,10 @@ class LayoutConverter {
     /// scores equally for both), the currently active layout is assumed to be the source.
     /// Rationale: the user is typing in the active layout and wants to convert to the other.
     private static func detectSourceLayout(_ text: String, layouts: [LayoutInfo]) -> DetectionResult {
-        // Build character sets per layout for O(1) membership checks
+        // Build character sets per layout for O(1) membership checks.
+        // KeyboardLayoutMap caches the Set, so this is cheap on the hot path.
         let layoutCharSets: [(layout: LayoutInfo, chars: Set<Character>)] = layouts.map { layout in
-            let reverseMap = KeyboardLayoutMap.buildReverseMap(for: layout)
-            return (layout, Set(reverseMap.keys))
+            (layout, KeyboardLayoutMap.characterSet(for: layout))
         }
 
         // Score each layout: unique chars (only in this layout) + total chars

@@ -32,6 +32,9 @@ class KeyboardLayoutMap {
     private static var characterMapCache: [String: [CharacterMapKey: Character]] = [:]
     /// Cached reverse maps keyed by layout ID.
     private static var reverseMapCache: [String: [Character: KeyMapping]] = [:]
+    /// Cached character sets keyed by layout ID.
+    /// Materialized once per layout instead of rebuilt on every detection call.
+    private static var characterSetCache: [String: Set<Character>] = [:]
     /// Cached layout list.
     private static var layoutCache: [LayoutInfo]?
 
@@ -217,6 +220,26 @@ class KeyboardLayoutMap {
         return reverse
     }
 
+    /// Set of characters producible by `layout`, cached. Equivalent to
+    /// `Set(buildReverseMap(for: layout).keys)` but only built once per layout
+    /// (used by detection scoring on every conversion).
+    static func characterSet(for layout: LayoutInfo) -> Set<Character> {
+        lock.lock()
+        if let cached = characterSetCache[layout.id] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let reverse = buildReverseMap(for: layout)
+        let set = Set(reverse.keys)
+
+        lock.lock()
+        characterSetCache[layout.id] = set
+        lock.unlock()
+        return set
+    }
+
     /// Add dead-key composed characters (é, ñ, ê, etc.) to the reverse map.
     /// Maps each composed char to its BASE key code so conversion can find it.
     private static func addDeadKeyCompositions(for layout: LayoutInfo, into reverse: inout [Character: KeyMapping]) {
@@ -246,6 +269,7 @@ class KeyboardLayoutMap {
         lock.lock()
         characterMapCache.removeAll()
         reverseMapCache.removeAll()
+        characterSetCache.removeAll()
         layoutCache = nil
         lock.unlock()
     }
