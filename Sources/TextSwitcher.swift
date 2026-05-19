@@ -108,12 +108,14 @@ class TextSwitcher {
     private static let eventSource: CGEventSource? = CGEventSource(stateID: .combinedSessionState)
 
     /// Path to a plain-text diagnostic log appended on every conversion.
-    /// `log show --predicate 'process == "BilingualSwitcher"'` filters out
-    /// NSLog messages on recent macOS unless the system is in verbose mode,
-    /// so we write directly to a file the user can read with `cat`.
+    /// Off by default — the log contains the user's selected text and the
+    /// converted result. Enable per session for triage with:
+    ///   defaults write com.komandakycto.bilingual-switcher BILINGUAL_DIAG -bool YES
     private static let diagLogPath = "/tmp/bilingual-switcher.log"
+    private static let diagEnabledKey = "BILINGUAL_DIAG"
 
     static func diag(_ message: String) {
+        guard UserDefaults.standard.bool(forKey: diagEnabledKey) else { return }
         let line = "\(Self.diagTimestamp()) \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         let url = URL(fileURLWithPath: diagLogPath)
