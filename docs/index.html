@@ -134,20 +134,16 @@
     }
     ul { padding-left: 22px; margin: 0 0 16px; }
     li { margin-bottom: 6px; }
-    .demo {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px 22px;
+    .demo-gif {
       margin: 0 0 16px;
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 15px;
+      text-align: center;
     }
-    .demo .ru-was { color: #d70015; text-decoration: line-through; }
-    .demo .ru-now { color: #1b9e3a; font-weight: 600; }
-    @media (prefers-color-scheme: dark) {
-      .demo .ru-was { color: #ff453a; }
-      .demo .ru-now { color: #30d158; }
+    .demo-gif img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
     }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
@@ -175,10 +171,7 @@
 
     <h2>What it does</h2>
     <p>You meant to type in Russian, but the layout was English. Or the other way around. Don't retype — select the text, press the hotkey:</p>
-    <div class="demo">
-      <span class="ru-was">Ghbdtn vbh!</span> &nbsp;→&nbsp; <span class="ru-now">Привет мир!</span><br>
-      <span class="ru-was">Руддщ Цщкдв!</span> &nbsp;→&nbsp; <span class="ru-now">Hello World!</span>
-    </div>
+    <p class="demo-gif"><img src="demo.gif" alt="Demo: typing in the wrong layout in Slack, then fixing it with one hotkey"></p>
     <p>Works with any pair of installed keyboard layouts — not just English ↔ Russian. The app reads layout data directly from macOS, so there are no hardcoded mappings.</p>
 
     <h2>Install</h2>
