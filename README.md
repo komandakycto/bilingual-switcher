@@ -24,6 +24,10 @@ Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any lan
 
 > **Русский:** Bilingual Switcher — альтернатива Punto Switcher для macOS. Выделил текст, нажал хоткей — раскладка исправлена (`ghbdtn` → `привет`). Работает с любой парой языков, не только русский и английский. См. раздел [Install](#install) для установки через Homebrew или DMG.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Demo: typing in the wrong layout in Slack, then fixing it with one hotkey" width="720">
+</p>
+
 ## Features
 
 - **Instant conversion** — select text, press hotkey, done
