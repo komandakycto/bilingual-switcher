@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bilingual Switcher — convert selected text between keyboard layouts</title>
+  <meta name="description" content="A lightweight macOS menu bar app that converts selected text between any two installed keyboard layouts with a global hotkey.">
+  <meta property="og:title" content="Bilingual Switcher">
+  <meta property="og:description" content="Convert selected text between any two keyboard layouts with a global hotkey on macOS.">
+  <meta property="og:image" content="social_preview.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://komandakycto.github.io/bilingual-switcher/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='80' font-size='80'%3E⌨️%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      --fg: #1d1d1f;
+      --fg-muted: #6e6e73;
+      --bg: #fbfbfd;
+      --card-bg: #ffffff;
+      --border: #d2d2d7;
+      --accent: #0066cc;
+      --code-bg: #f5f5f7;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #f5f5f7;
+        --fg-muted: #a1a1a6;
+        --bg: #000000;
+        --card-bg: #1c1c1e;
+        --border: #38383a;
+        --accent: #2997ff;
+        --code-bg: #1c1c1e;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+      color: var(--fg);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    .hero {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .hero img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    h1 {
+      font-size: 44px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 32px 0 12px;
+      line-height: 1.1;
+    }
+    .tagline {
+      font-size: 21px;
+      color: var(--fg-muted);
+      margin: 0 0 32px;
+      font-weight: 400;
+    }
+    .cta {
+      display: inline-flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 980px;
+      font-weight: 500;
+      font-size: 16px;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      color: var(--fg);
+      background: var(--card-bg);
+      transition: transform 0.06s ease, background 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    h2 {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 56px 0 16px;
+    }
+    p { margin: 0 0 16px; }
+    code, pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 16px 18px;
+      border-radius: 10px;
+      overflow-x: auto;
+      margin: 0 0 16px;
+      border: 1px solid var(--border);
+    }
+    code {
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    pre code { background: transparent; padding: 0; }
+    kbd {
+      display: inline-block;
+      padding: 2px 8px;
+      font: inherit;
+      font-size: 0.88em;
+      line-height: 1.4;
+      color: var(--fg);
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 6px;
+    }
+    ul { padding-left: 22px; margin: 0 0 16px; }
+    li { margin-bottom: 6px; }
+    .demo {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      margin: 0 0 16px;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 15px;
+    }
+    .demo .ru-was { color: #d70015; text-decoration: line-through; }
+    .demo .ru-now { color: #1b9e3a; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .demo .ru-was { color: #ff453a; }
+      .demo .ru-now { color: #30d158; }
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer {
+      margin-top: 80px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--fg-muted);
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <img src="social_preview.png" alt="Bilingual Switcher">
+      <h1>Bilingual Switcher</h1>
+      <p class="tagline">Convert selected text between any two keyboard layouts on macOS with a single hotkey.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/komandakycto/bilingual-switcher/releases/latest/download/BilingualSwitcher.dmg">Download .dmg</a>
+        <a class="btn" href="https://github.com/komandakycto/bilingual-switcher">GitHub</a>
+      </div>
+    </section>
+
+    <h2>What it does</h2>
+    <p>You meant to type in Russian, but the layout was English. Or the other way around. Don't retype — select the text, press the hotkey:</p>
+    <div class="demo">
+      <span class="ru-was">Ghbdtn vbh!</span> &nbsp;→&nbsp; <span class="ru-now">Привет мир!</span><br>
+      <span class="ru-was">Руддщ Цщкдв!</span> &nbsp;→&nbsp; <span class="ru-now">Hello World!</span>
+    </div>
+    <p>Works with any pair of installed keyboard layouts — not just English ↔ Russian. The app reads layout data directly from macOS, so there are no hardcoded mappings.</p>
+
+    <h2>Install</h2>
+    <p><strong>Homebrew (recommended):</strong></p>
+<pre><code>brew tap komandakycto/bilingual-switcher https://github.com/komandakycto/bilingual-switcher.git
+brew install --cask bilingual-switcher</code></pre>
+    <p>Or <a href="https://github.com/komandakycto/bilingual-switcher/releases/latest">download the latest <code>.dmg</code> from GitHub Releases</a> and drag the app to Applications.</p>
+
+    <h2>Usage</h2>
+    <ul>
+      <li>Default hotkey: <kbd>⌥</kbd> <kbd>⌘</kbd> <kbd>S</kbd> — change it in Preferences.</li>
+      <li>Select text in any app, press the hotkey. The app auto-detects which layout the text was typed in and converts to the other.</li>
+      <li>Optional: enable “switch keyboard layout after conversion” so you can continue typing in the right language.</li>
+      <li>On first launch, grant Accessibility permission in System&nbsp;Settings → Privacy&nbsp;&amp;&nbsp;Security → Accessibility.</li>
+    </ul>
+
+    <h2>Why</h2>
+    <ul>
+      <li><strong>Any language pair</strong> — works with every keyboard layout that uses physical key mapping (English, Russian, Ukrainian, French, German, Spanish, Portuguese, Italian, Polish, Czech, Turkish, and more).</li>
+      <li><strong>Works everywhere</strong> — Slack, VS Code, Safari, Notes, Terminal, JetBrains IDEs, contenteditable web fields.</li>
+      <li><strong>Privacy</strong> — no telemetry, no data collection. Only network access is the optional Sparkle update check.</li>
+      <li><strong>Lightweight</strong> — native Swift, no Electron. Universal binary, ~3 MB.</li>
+      <li><strong>Open source</strong> — MIT licensed, source on GitHub.</li>
+    </ul>
+
+    <footer>
+      <a href="https://github.com/komandakycto/bilingual-switcher">Source</a> ·
+      <a href="https://github.com/komandakycto/bilingual-switcher/releases">Releases</a> ·
+      <a href="https://github.com/komandakycto/bilingual-switcher/issues">Issues</a> ·
+      <a href="https://github.com/komandakycto/bilingual-switcher/blob/main/LICENSE">License</a>
+    </footer>
+  </main>
+</body>
+</html>
