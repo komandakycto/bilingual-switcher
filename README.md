@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-A lightweight macOS menu bar app that converts selected text between<br>
-any two keyboard layouts with a single hotkey.
+A lightweight macOS menu bar app that fixes text typed in the wrong keyboard layout —<br>
+like Punto Switcher, but for <em>any</em> language pair.
 </p>
 
 ---
@@ -21,6 +21,8 @@ Ever type a whole sentence only to realize your keyboard was in the wrong langua
 `Ghbdtn vbh!` instead of `Привет мир!` — or `Руддщ Цщкдв!` instead of `Hello World!`
 
 Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any language pair — not just English and Russian.
+
+> **Русский:** Bilingual Switcher — альтернатива Punto Switcher для macOS. Выделил текст, нажал хоткей — раскладка исправлена (`ghbdtn` → `привет`). Работает с любой парой языков, не только русский и английский. См. раздел [Install](#install) для установки через Homebrew или DMG.
 
 ## Features
 
@@ -119,6 +121,20 @@ With 3+ layouts installed, the app tracks the two you most recently switched bet
 
 - macOS 13.0 (Ventura) or later
 - Accessibility permission (prompted on first launch)
+
+## Alternatives
+
+There are several tools that solve the "I typed in the wrong layout" problem. Bilingual Switcher's niche is **macOS-native + any language pair + open source**.
+
+| Tool | Platform | Notes |
+|---|---|---|
+| [Punto Switcher](https://yandex.com/soft/punto/) (Yandex) | Windows | The original; Windows-only, closed source, Russian ↔ English focus |
+| [dotSwitcher](https://github.com/kurumpa/dotSwitcher) | Windows | Open source, the most popular Windows alternative |
+| [PlutoSwitcher](https://github.com/MihailPreis/PlutoSwitcher) | macOS | Open source; Russian ↔ English only, no language auto-detection |
+| [GhbdtnFix](https://github.com/KFlone5/GhbdtnFix) | macOS | Open source; broader scope (also Caps Lock fixes, case toggle) |
+| **Bilingual Switcher** | macOS | Open source, MIT, any installed layout pair, no hardcoded language mappings |
+
+If you're on Windows, dotSwitcher is the way. On macOS, pick by your language needs and whether you want auto-detection.
 
 ## Contributing
 
