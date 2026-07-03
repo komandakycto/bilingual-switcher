@@ -14,6 +14,22 @@ private func hotkeyEventHandler(
 }
 
 class HotkeyManager {
+    /// Sentinel key code meaning "modifier-only hotkey": the stored modifier
+    /// mask holds the combo and there is no regular key. 0xFFFF is never a real
+    /// virtual key code, so it cannot collide with a keyed shortcut.
+    static let modifierOnlyKeyCode: UInt32 = 0xFFFF
+
+    /// Distinguishes a regular keyed shortcut from a modifier-only tap.
+    enum HotkeyKind {
+        case keyed
+        case modifierOnly
+    }
+
+    /// Classifies a stored key code as keyed or modifier-only.
+    static func kind(keyCode: UInt32) -> HotkeyKind {
+        keyCode == modifierOnlyKeyCode ? .modifierOnly : .keyed
+    }
+
     private var hotkeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private let callback: () -> Void
@@ -112,11 +128,55 @@ extension UserDefaults {
         set { set(Int(newValue), forKey: Self.hotkeyModifiersKey) }
     }
 
+    /// Whether the stored hotkey is a modifier-only tap rather than a keyed
+    /// shortcut. Derived from the sentinel key code so storage stays backward
+    /// compatible.
+    var hotkeyIsModifierOnly: Bool {
+        hotkeyKeyCode == HotkeyManager.modifierOnlyKeyCode
+    }
+
     private static let switchLayoutKey = "switchLayoutAfterConversion"
 
     var switchLayoutAfterConversion: Bool {
         get { bool(forKey: Self.switchLayoutKey) }
         set { set(newValue, forKey: Self.switchLayoutKey) }
+    }
+}
+
+// MARK: - Modifier-only hotkey helpers
+
+/// Converts and validates modifier combinations for the modifier-only hotkey
+/// path. Comparisons happen in device-independent `NSEvent.ModifierFlags` space
+/// (which collapses left/right variants), restricted to exactly
+/// `{command, option, control, shift}` so `capsLock`, `function` (Globe) and
+/// numeric-pad noise never prevent a match. The reverse direction
+/// (flags → Carbon mask) stays on `NSEvent.carbonModifiers`.
+enum HotkeyModifierHelper {
+    /// The four modifier flags the app recognizes for hotkeys.
+    static let relevantFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+
+    /// Restricts arbitrary flags to exactly the four relevant modifiers,
+    /// stripping `capsLock`, `function` and numeric-pad noise.
+    static func normalize(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags.intersection(relevantFlags)
+    }
+
+    /// Builds normalized device-independent flags from a Carbon modifier mask.
+    static func flags(fromCarbon carbonModifiers: UInt32) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if carbonModifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if carbonModifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if carbonModifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if carbonModifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        return flags
+    }
+
+    /// True iff at least two of `{command, option, control, shift}` are set —
+    /// lone single modifiers are rejected to keep false triggers low.
+    static func isValidModifierOnlyCombo(carbonModifiers: UInt32) -> Bool {
+        let carbonBits = [cmdKey, optionKey, controlKey, shiftKey]
+        let activeCount = carbonBits.filter { carbonModifiers & UInt32($0) != 0 }.count
+        return activeCount >= 2
     }
 }
 
