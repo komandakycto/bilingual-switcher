@@ -359,6 +359,70 @@ final class ModifierHotkeyTests: XCTestCase {
         )
     }
 
+    // MARK: - Recorder capture decision
+
+    // `ShortcutRecorderView.decide` is the pure core of the recorder: given the
+    // peak modifier set and whether a real key was pressed, it chooses a keyed
+    // hotkey, a modifier-only combo, or rejects the gesture. UI event delivery
+    // is verified manually (Post-Completion); the decision is tested here.
+
+    func testRecorderDecide_TwoModifiersRecordsModifierOnly() {
+        XCTAssertEqual(
+            ShortcutRecorderView.decide(
+                peakCarbonModifiers: UInt32(optionKey | cmdKey),
+                keyPressed: false,
+                keyCode: HotkeyManager.modifierOnlyKeyCode
+            ),
+            .modifierOnly(modifiers: UInt32(optionKey | cmdKey))
+        )
+    }
+
+    func testRecorderDecide_ControlShiftRecordsModifierOnly() {
+        XCTAssertEqual(
+            ShortcutRecorderView.decide(
+                peakCarbonModifiers: UInt32(controlKey | shiftKey),
+                keyPressed: false,
+                keyCode: HotkeyManager.modifierOnlyKeyCode
+            ),
+            .modifierOnly(modifiers: UInt32(controlKey | shiftKey))
+        )
+    }
+
+    func testRecorderDecide_SingleModifierIsInvalid() {
+        XCTAssertEqual(
+            ShortcutRecorderView.decide(
+                peakCarbonModifiers: UInt32(cmdKey),
+                keyPressed: false,
+                keyCode: HotkeyManager.modifierOnlyKeyCode
+            ),
+            .invalid
+        )
+    }
+
+    func testRecorderDecide_NoModifiersIsInvalid() {
+        XCTAssertEqual(
+            ShortcutRecorderView.decide(
+                peakCarbonModifiers: 0,
+                keyPressed: false,
+                keyCode: HotkeyManager.modifierOnlyKeyCode
+            ),
+            .invalid
+        )
+    }
+
+    func testRecorderDecide_KeyPressedWinsAsKeyed() {
+        let keyCode = UInt32(kVK_ANSI_S)
+        let mods = UInt32(optionKey | cmdKey)
+        XCTAssertEqual(
+            ShortcutRecorderView.decide(
+                peakCarbonModifiers: mods,
+                keyPressed: true,
+                keyCode: keyCode
+            ),
+            .keyed(keyCode: keyCode, modifiers: mods)
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {
