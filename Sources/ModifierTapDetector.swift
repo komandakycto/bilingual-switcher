@@ -71,8 +71,8 @@ struct ModifierTapDetector {
         return false
     }
 
-    /// Records intervening non-modifier input (a key-down, mouse-down, scroll or
-    /// trackpad gesture). It contaminates the gesture whenever **any** modifier
+    /// Records intervening non-modifier input (a key-down or mouse-down). It
+    /// contaminates the gesture whenever **any** modifier
     /// is currently held — i.e. while building toward the combo *or* fully
     /// armed — so it will not fire on release. This is what keeps `⌥⌘C`,
     /// `⌥⌘`+click and "hold ⌘, press a key, then add ⌥" working normally.
