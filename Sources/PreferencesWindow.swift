@@ -230,7 +230,13 @@ class ShortcutRecorderView: NSView {
 
         let currentCarbon = event.carbonModifiers
         if currentCarbon != 0 {
-            peakCarbonModifiers |= currentCarbon
+            // Each flagsChanged carries the *complete* currently-held set, so
+            // keep the largest simultaneously-held set (most modifiers) rather
+            // than OR-ing across the whole gesture. A rolling press (⌘ down,
+            // ⌘ up, ⌥ down — never both down together) must not record ⌥⌘.
+            if currentCarbon.nonzeroBitCount > peakCarbonModifiers.nonzeroBitCount {
+                peakCarbonModifiers = currentCarbon
+            }
             return
         }
 

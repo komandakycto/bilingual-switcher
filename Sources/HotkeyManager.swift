@@ -30,6 +30,15 @@ class HotkeyManager {
         keyCode == modifierOnlyKeyCode ? .modifierOnly : .keyed
     }
 
+    /// True only inside the XCTest harness (which links `XCTestCase`; the
+    /// shipping app does not). Used to suppress the modal accessibility alert in
+    /// `registerModifierOnlyHotkey()` so the headless test suite — which
+    /// exercises the modifier-only `register()` path in a process that is not
+    /// accessibility-trusted — never blocks on `runModal()`.
+    private static var isRunningUnderXCTest: Bool {
+        NSClassFromString("XCTestCase") != nil
+    }
+
     private var hotkeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var modifierMonitor: ModifierOnlyHotkeyMonitor?
@@ -98,10 +107,22 @@ class HotkeyManager {
     /// Modifier-only path: drives a passive `NSEvent` global monitor from the
     /// stored modifier combo. Unlike Carbon, this path has no conflict detection
     /// against other apps' shortcuts, so `registrationFailed` only trips when the
-    /// global monitor itself is nil (rare). The real failure mode is a
-    /// missing/revoked Accessibility grant — already surfaced by the app's
-    /// existing accessibility flow — not a conflict (see plan Task 1 finding).
+    /// global monitor itself is nil (rare).
+    ///
+    /// The real failure mode is a missing/revoked Accessibility grant. A global
+    /// NSEvent monitor only receives key/flags events when the app is trusted
+    /// for accessibility, yet `addGlobalMonitorForEvents` still returns a
+    /// non-nil token when untrusted — so the path *looks* registered but the
+    /// callback never runs: a silently dead hotkey. The Carbon keyed path fires
+    /// without Accessibility and reaches `TextSwitcher`'s own
+    /// `AXIsProcessTrusted()` guard (which shows the alert), but this path never
+    /// gets that far. So surface the same accessibility alert here when
+    /// untrusted. This runs on every `register()` (launch + each prefs save) but
+    /// only while the grant is missing, and stops once it is granted.
     private func registerModifierOnlyHotkey() {
+        if !AXIsProcessTrusted() && !HotkeyManager.isRunningUnderXCTest {
+            TextSwitcher.showAccessibilityNotification()
+        }
         let monitor = ModifierOnlyHotkeyMonitor(
             carbonModifiers: UserDefaults.standard.hotkeyModifiers,
             callback: callback

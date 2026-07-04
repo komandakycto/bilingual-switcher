@@ -29,18 +29,23 @@ final class ModifierOnlyHotkeyMonitor {
         case ignore
     }
 
-    /// Event types the single global monitor subscribes to. Besides key and
-    /// mouse-down events, scroll and trackpad gestures count as intervening
-    /// input so that holding the combo while scrolling or pinching, then
-    /// releasing, does not spuriously fire.
+    /// Event types the single global monitor subscribes to: modifier-flag
+    /// changes plus the intervening inputs the trigger contract recognizes — a
+    /// non-modifier key press and the three mouse-down buttons.
+    ///
+    /// Scroll and trackpad gestures are deliberately NOT monitored. The
+    /// contract only excludes an intervening key or mouse *click*, not scroll;
+    /// and inertial (momentum) scroll delivers `.scrollWheel` events *after* the
+    /// user's fingers have left the trackpad, so contaminating on scroll would
+    /// silently suppress an otherwise-clean modifier tap — a missed legitimate
+    /// trigger, worse than the rare spurious fire it would prevent.
     ///
     /// Keep the intervening event types in sync with `detectorInput`'s
     /// `.intervening` case — an event subscribed here but missing there routes
     /// to `.ignore` and silently fails to contaminate an armed gesture.
     static let monitoredEvents: NSEvent.EventTypeMask = [
         .flagsChanged, .keyDown,
-        .leftMouseDown, .rightMouseDown, .otherMouseDown,
-        .scrollWheel, .magnify, .rotate, .swipe
+        .leftMouseDown, .rightMouseDown, .otherMouseDown
     ]
 
     /// Value-type state machine held as a `var` so its mutations persist
@@ -69,10 +74,11 @@ final class ModifierOnlyHotkeyMonitor {
         case .flagsChanged:
             return .flags(HotkeyModifierHelper.normalize(modifierFlags))
         // Keep this list in sync with `monitoredEvents` — anything the monitor
-        // subscribes to but omits here would fall through to `.ignore`.
+        // subscribes to but omits here would fall through to `.ignore`. Scroll
+        // and trackpad gestures are intentionally absent (see `monitoredEvents`);
+        // they classify as `.ignore` and never contaminate an armed gesture.
         case .keyDown,
-             .leftMouseDown, .rightMouseDown, .otherMouseDown,
-             .scrollWheel, .magnify, .rotate, .swipe:
+             .leftMouseDown, .rightMouseDown, .otherMouseDown:
             return .intervening
         default:
             return .ignore

@@ -255,13 +255,17 @@ final class ModifierHotkeyTests: XCTestCase {
         }
     }
 
-    func testMonitorClassify_ScrollAndGesturesAreIntervening() {
+    func testMonitorClassify_ScrollAndGesturesAreIgnored() {
+        // The contract excludes an intervening key or mouse *click* only, not
+        // scroll. Momentum scroll arrives after the fingers leave the trackpad,
+        // so treating scroll as intervening would suppress a clean tap. These
+        // event types must classify as `.ignore`, not contaminate the gesture.
         let gestures: [NSEvent.EventType] = [.scrollWheel, .magnify, .rotate, .swipe]
         for eventType in gestures {
             XCTAssertEqual(
                 ModifierOnlyHotkeyMonitor.detectorInput(for: eventType, modifierFlags: [.command]),
-                .intervening,
-                "\(eventType) must count as intervening input"
+                .ignore,
+                "\(eventType) must be ignored, not treated as intervening input"
             )
         }
     }
@@ -274,6 +278,24 @@ final class ModifierHotkeyTests: XCTestCase {
         XCTAssertEqual(
             ModifierOnlyHotkeyMonitor.detectorInput(for: .mouseMoved, modifierFlags: []),
             .ignore
+        )
+    }
+
+    // MARK: - Shared accessibility alert copy
+
+    // The modifier-only registration path reuses TextSwitcher's accessibility
+    // alert so the user gets the same guidance the conversion flow already
+    // surfaces. Assert the shared copy (not the modal itself, which can't run
+    // headless) so both paths stay in lockstep.
+    func testAccessibilityAlert_SharedCopyIsPresent() {
+        XCTAssertEqual(TextSwitcher.accessibilityAlertTitle, "Accessibility Permission Required")
+        XCTAssertTrue(
+            TextSwitcher.accessibilityAlertBody.contains("Privacy & Security"),
+            "Body must direct the user to Privacy & Security → Accessibility"
+        )
+        XCTAssertTrue(
+            TextSwitcher.accessibilityAlertBody.contains("Accessibility"),
+            "Body must name the Accessibility pane"
         )
     }
 
