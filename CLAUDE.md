@@ -11,7 +11,7 @@ macOS menu bar app that converts selected text between any two installed keyboar
 ```bash
 make setup    # Download Sparkle framework (required before first build)
 make          # Build universal binary (arm64 + x86_64) → build/BilingualSwitcher.app
-make test     # Compile and run XCTest suite (47 tests)
+make test     # Compile and run XCTest suite (125 tests)
 make lint     # SwiftLint in --strict mode (CI enforces this)
 make run      # Build + launch the app
 make install  # Copy to /Applications
@@ -24,7 +24,7 @@ No SPM or Xcode project — just `swiftc` via Makefile. The test target compiles
 
 **Data flow on hotkey press:**
 ```
-HotkeyManager (Carbon Event) → TextSwitcher.switchSelectedText()
+HotkeyManager (Carbon hotkey or NSEvent modifier monitor) → TextSwitcher.switchSelectedText()
   → Cmd+C (copy selected text)
   → LayoutConverter.convert(text) {
       KeyboardLayoutMap.buildReverseMap(source)  // char → physical key
@@ -40,7 +40,9 @@ HotkeyManager (Carbon Event) → TextSwitcher.switchSelectedText()
 - `LayoutConverter` — Detects source layout by scoring text against each layout's character set (unique chars weighted higher). For 3+ layouts, prefers the currently active layout as target via `TISCopyCurrentKeyboardInputSource`.
 - `TextSwitcher` — Orchestrates the copy→convert→paste flow using `CGEvent` keyboard simulation. The Right Arrow + N×Backspace pattern (instead of relying on Cmd+V replacing selection) fixes terminal apps where selection is visual-only.
 - `InputSourceSwitcher` — Activates the target layout after conversion. Uses current layout to determine counterpart (not hardcoded indices).
-- `HotkeyManager` — Carbon Event API for global hotkey registration. Settings in UserDefaults.
+- `HotkeyManager` — Global hotkey registration with a dual path, chosen by a sentinel key code (`modifierOnlyKeyCode = 0xFFFF`). Keyed shortcuts (e.g. ⌥⌘S) use Carbon `RegisterEventHotKey`; modifier-only combos (e.g. ⌥⌘) use a passive global `NSEvent` monitor (`ModifierOnlyHotkeyMonitor`). Both routes share `register()`/`unregister()`/`registrationFailed`. Settings in UserDefaults (`hotkeyKeyCode`/`hotkeyModifiers`, backward compatible). `HotkeyModifierHelper` converts Carbon masks ↔ normalized `NSEvent.ModifierFlags` and validates combos (≥2 modifiers). Needs only Accessibility (already required for CGEvent injection) — no Input Monitoring grant.
+- `ModifierTapDetector` — Pure fire-on-full-release state machine (no AppKit), the correctness core, heavily unit-tested. Arms when held modifiers exactly equal the target set; contaminates on any intervening key/mouse-down or extra modifier; fires only when all modifiers release cleanly. Firing on empty guarantees no modifier is held when the synthesized Cmd+C is posted.
+- `ModifierOnlyHotkeyMonitor` — Thin AppKit glue: one global `NSEvent` monitor (`.flagsChanged` + key/mouse-down) feeds a `ModifierTapDetector` and invokes the callback on fire.
 
 ## SwiftLint Rules
 
