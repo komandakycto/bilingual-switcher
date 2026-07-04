@@ -20,25 +20,6 @@ final class ModifierHotkeyTests: XCTestCase {
         )
     }
 
-    func testHotkeyIsModifierOnly_DerivesFromKeyCode() {
-        let defaults = UserDefaults.standard
-        let key = "hotkeyKeyCode"
-        let original = defaults.object(forKey: key)
-        defer {
-            if let original {
-                defaults.set(original, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
-
-        defaults.hotkeyKeyCode = HotkeyManager.modifierOnlyKeyCode
-        XCTAssertTrue(defaults.hotkeyIsModifierOnly)
-
-        defaults.hotkeyKeyCode = UInt32(kVK_ANSI_S)
-        XCTAssertFalse(defaults.hotkeyIsModifierOnly)
-    }
-
     // MARK: - Carbon → normalized flags
 
     func testFlagsFromCarbon_OptionCommand() {

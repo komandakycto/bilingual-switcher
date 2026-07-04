@@ -33,6 +33,10 @@ final class ModifierOnlyHotkeyMonitor {
     /// mouse-down events, scroll and trackpad gestures count as intervening
     /// input so that holding the combo while scrolling or pinching, then
     /// releasing, does not spuriously fire.
+    ///
+    /// Keep the intervening event types in sync with `detectorInput`'s
+    /// `.intervening` case — an event subscribed here but missing there routes
+    /// to `.ignore` and silently fails to contaminate an armed gesture.
     static let monitoredEvents: NSEvent.EventTypeMask = [
         .flagsChanged, .keyDown,
         .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -64,6 +68,8 @@ final class ModifierOnlyHotkeyMonitor {
         switch eventType {
         case .flagsChanged:
             return .flags(HotkeyModifierHelper.normalize(modifierFlags))
+        // Keep this list in sync with `monitoredEvents` — anything the monitor
+        // subscribes to but omits here would fall through to `.ignore`.
         case .keyDown,
              .leftMouseDown, .rightMouseDown, .otherMouseDown,
              .scrollWheel, .magnify, .rotate, .swipe:

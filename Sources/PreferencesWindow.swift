@@ -167,7 +167,6 @@ class ShortcutRecorderView: NSView {
     private var modifiers: UInt32
     private var isRecording = false
     private var peakCarbonModifiers: UInt32 = 0
-    private var keyPressed = false
     private var displayField: NSTextField!
     private let onChange: (UInt32, UInt32) -> Void
 
@@ -204,7 +203,6 @@ class ShortcutRecorderView: NSView {
         window?.makeFirstResponder(self)
         isRecording = true
         peakCarbonModifiers = 0
-        keyPressed = false
         displayField.stringValue = "Press shortcut..."
         displayField.textColor = .systemOrange
         layer?.borderColor = NSColor.systemOrange.cgColor
@@ -221,7 +219,6 @@ class ShortcutRecorderView: NSView {
         guard carbonModifiers != 0 else { return }
 
         // A real key press always wins: record a keyed hotkey immediately.
-        keyPressed = true
         commit(.keyed(keyCode: UInt32(event.keyCode), modifiers: carbonModifiers))
     }
 
@@ -237,10 +234,9 @@ class ShortcutRecorderView: NSView {
             return
         }
 
-        // Flags fell back to empty. If a real key was pressed this gesture, the
-        // keyDown path already recorded it — do not also fire modifier-only.
-        guard !keyPressed else { return }
-
+        // Flags fell back to empty. Recording is still active here — a keyed
+        // press would have committed and set isRecording=false, which the guard
+        // above already catches — so a valid peak set is a modifier-only tap.
         if HotkeyModifierHelper.isValidModifierOnlyCombo(carbonModifiers: peakCarbonModifiers) {
             commit(.modifierOnly(modifiers: peakCarbonModifiers))
         } else {

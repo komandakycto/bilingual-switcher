@@ -165,13 +165,6 @@ extension UserDefaults {
         set { set(Int(newValue), forKey: Self.hotkeyModifiersKey) }
     }
 
-    /// Whether the stored hotkey is a modifier-only tap rather than a keyed
-    /// shortcut. Derived from the sentinel key code so storage stays backward
-    /// compatible.
-    var hotkeyIsModifierOnly: Bool {
-        hotkeyKeyCode == HotkeyManager.modifierOnlyKeyCode
-    }
-
     private static let switchLayoutKey = "switchLayoutAfterConversion"
 
     var switchLayoutAfterConversion: Bool {
