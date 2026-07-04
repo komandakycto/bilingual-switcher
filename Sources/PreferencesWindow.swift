@@ -243,7 +243,9 @@ enum HotkeyDisplayHelper {
         if modifiers & UInt32(optionKey) != 0 { parts.append("\u{2325}") }
         if modifiers & UInt32(shiftKey) != 0 { parts.append("\u{21E7}") }
         if modifiers & UInt32(cmdKey) != 0 { parts.append("\u{2318}") }
-        parts.append(KeyCodeNames.name(for: keyCode))
+        if keyCode != HotkeyManager.modifierOnlyKeyCode {
+            parts.append(KeyCodeNames.name(for: keyCode))
+        }
         return parts.joined()
     }
 }

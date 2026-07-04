@@ -333,6 +333,32 @@ final class ModifierHotkeyTests: XCTestCase {
         monitor.stop()
     }
 
+    // MARK: - Display formatting
+
+    // The formatter emits modifier glyphs in control, option, shift, command
+    // order, then the key glyph. For a modifier-only sentinel it must omit the
+    // key glyph entirely and render just the modifier symbols.
+
+    func testFormat_ModifierOnlyOmitsKeyGlyph() {
+        XCTAssertEqual(
+            HotkeyDisplayHelper.format(
+                keyCode: HotkeyManager.modifierOnlyKeyCode,
+                modifiers: UInt32(optionKey | cmdKey)
+            ),
+            "\u{2325}\u{2318}" // ⌥⌘
+        )
+    }
+
+    func testFormat_KeyedShortcutIncludesKeyGlyph() {
+        XCTAssertEqual(
+            HotkeyDisplayHelper.format(
+                keyCode: UInt32(kVK_ANSI_S),
+                modifiers: UInt32(optionKey | cmdKey)
+            ),
+            "\u{2325}\u{2318}S" // ⌥⌘S
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {
