@@ -22,9 +22,15 @@ struct ModifierTapDetector {
     /// released or contaminated.
     private var armed = false
 
-    /// True if, while armed, any extra modifier or intervening input arrived —
-    /// which disqualifies the current gesture from firing.
+    /// True if any extra modifier or intervening input arrived while at least
+    /// one target modifier was held — which disqualifies the current gesture
+    /// from firing. Only a full release (empty `heldSet`) clears it.
     private var contaminated = false
+
+    /// The most recent held-modifier set (normalized). Tracked so that
+    /// intervening input can contaminate a gesture that is *building toward* the
+    /// target (a non-empty subset), not only a fully-armed one.
+    private var heldSet: NSEvent.ModifierFlags = []
 
     init(targetSet: NSEvent.ModifierFlags) {
         self.targetSet = targetSet
@@ -35,11 +41,16 @@ struct ModifierTapDetector {
     ///
     /// Branch precedence (must be evaluated in this order):
     /// 1. empty → fire iff `armed && !contaminated`, then reset unconditionally.
-    /// 2. `heldSet == targetSet` while not armed → arm.
+    ///    Full release is the *only* point that clears contamination.
+    /// 2. `heldSet == targetSet` while not armed → arm. This must **not** clear
+    ///    contamination: a stray key/click pressed while a partial subset was
+    ///    held (before the combo completed) has to survive to block the fire.
     /// 3. `heldSet` holds a modifier outside `targetSet` (superset/divergence)
     ///    → contaminate.
     /// 4. otherwise (non-empty strict subset — mid-press/mid-release) → no-op.
     mutating func handleFlags(_ heldSet: NSEvent.ModifierFlags) -> Bool {
+        self.heldSet = heldSet
+
         if heldSet.isEmpty {
             let fired = armed && !contaminated
             armed = false
@@ -49,7 +60,6 @@ struct ModifierTapDetector {
 
         if heldSet == targetSet, !armed {
             armed = true
-            contaminated = false
             return false
         }
 
@@ -61,11 +71,16 @@ struct ModifierTapDetector {
         return false
     }
 
-    /// Records intervening non-modifier input (a key-down or mouse-down). While
-    /// armed this contaminates the gesture so it will not fire on release — this
-    /// is what keeps `⌥⌘C` and `⌥⌘`+click working normally.
+    /// Records intervening non-modifier input (a key-down, mouse-down, scroll or
+    /// trackpad gesture). It contaminates the gesture whenever **any** modifier
+    /// is currently held — i.e. while building toward the combo *or* fully
+    /// armed — so it will not fire on release. This is what keeps `⌥⌘C`,
+    /// `⌥⌘`+click and "hold ⌘, press a key, then add ⌥" working normally.
+    ///
+    /// The `heldSet`-non-empty guard is essential: a stray key-down while
+    /// nothing is held (ordinary typing) must not poison a later clean tap.
     mutating func handleInterveningInput() {
-        if armed {
+        if !heldSet.isEmpty {
             contaminated = true
         }
     }

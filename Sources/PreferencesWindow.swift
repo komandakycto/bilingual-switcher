@@ -153,30 +153,14 @@ class PreferencesWindowController: NSWindowController {
 // MARK: - Shortcut Recorder View
 
 class ShortcutRecorderView: NSView {
-    /// Pure outcome of a recording gesture, decided from the peak modifier set
-    /// and whether a real key was pressed. Isolated from AppKit so the decision
-    /// logic is unit-testable without event plumbing.
+    /// A decided recording outcome, consolidated so `commit` has one entry
+    /// point. A keyed hotkey comes straight from `keyDown`; a modifier-only
+    /// combo comes from `flagsChanged` once a valid (≥2-modifier) peak set is
+    /// released to empty. The validity rule itself lives in and is tested via
+    /// `HotkeyModifierHelper.isValidModifierOnlyCombo`.
     enum RecorderCapture: Equatable {
         case keyed(keyCode: UInt32, modifiers: UInt32)
         case modifierOnly(modifiers: UInt32)
-        case invalid
-    }
-
-    /// Decides what to record. A real key press always wins (keyed hotkey);
-    /// otherwise a keyless gesture records a modifier-only combo only when the
-    /// peak set has at least two modifiers, else it is rejected.
-    static func decide(
-        peakCarbonModifiers: UInt32,
-        keyPressed: Bool,
-        keyCode: UInt32
-    ) -> RecorderCapture {
-        if keyPressed {
-            return .keyed(keyCode: keyCode, modifiers: peakCarbonModifiers)
-        }
-        if HotkeyModifierHelper.isValidModifierOnlyCombo(carbonModifiers: peakCarbonModifiers) {
-            return .modifierOnly(modifiers: peakCarbonModifiers)
-        }
-        return .invalid
     }
 
     private var keyCode: UInt32
@@ -236,14 +220,9 @@ class ShortcutRecorderView: NSView {
         let carbonModifiers = event.carbonModifiers
         guard carbonModifiers != 0 else { return }
 
+        // A real key press always wins: record a keyed hotkey immediately.
         keyPressed = true
-        commit(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: carbonModifiers,
-                keyPressed: true,
-                keyCode: UInt32(event.keyCode)
-            )
-        )
+        commit(.keyed(keyCode: UInt32(event.keyCode), modifiers: carbonModifiers))
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -262,24 +241,17 @@ class ShortcutRecorderView: NSView {
         // keyDown path already recorded it — do not also fire modifier-only.
         guard !keyPressed else { return }
 
-        switch ShortcutRecorderView.decide(
-            peakCarbonModifiers: peakCarbonModifiers,
-            keyPressed: false,
-            keyCode: HotkeyManager.modifierOnlyKeyCode
-        ) {
-        case .modifierOnly(let combo):
-            commit(.modifierOnly(modifiers: combo))
-        case .invalid:
+        if HotkeyModifierHelper.isValidModifierOnlyCombo(carbonModifiers: peakCarbonModifiers) {
+            commit(.modifierOnly(modifiers: peakCarbonModifiers))
+        } else {
             // A lone modifier is not enough — stay recording and let the user
             // try again from a clean peak.
             peakCarbonModifiers = 0
-        case .keyed:
-            break
         }
     }
 
     /// Applies a decided capture: stores the values, ends recording, refreshes
-    /// the display and notifies the owner. `.invalid` is a no-op.
+    /// the display and notifies the owner.
     private func commit(_ capture: RecorderCapture) {
         switch capture {
         case .keyed(let code, let combo):
@@ -288,8 +260,6 @@ class ShortcutRecorderView: NSView {
         case .modifierOnly(let combo):
             keyCode = HotkeyManager.modifierOnlyKeyCode
             modifiers = combo
-        case .invalid:
-            return
         }
 
         isRecording = false

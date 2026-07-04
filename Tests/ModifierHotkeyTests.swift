@@ -225,6 +225,27 @@ final class ModifierHotkeyTests: XCTestCase {
         XCTAssertTrue(detector.handleFlags([]))          // fire
     }
 
+    func testDetector_InterveningInputBeforeArmingDoesNotFire() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // Hold a partial subset, press a key (intervening while building toward
+        // the combo), then complete the combo and release cleanly.
+        XCTAssertFalse(detector.handleFlags(cmd))    // subset — not yet armed
+        detector.handleInterveningInput()            // key/click while ⌘ held
+        XCTAssertFalse(detector.handleFlags(cmdOpt)) // arm — must keep contamination
+        XCTAssertFalse(detector.handleFlags([]),
+                       "A key pressed before the combo completed must block the fire")
+    }
+
+    func testDetector_InterveningInputWhileNothingHeldDoesNotPoisonNextTap() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // A stray key-down with no modifiers held (ordinary typing) must not
+        // contaminate — the very next clean tap still fires.
+        detector.handleInterveningInput()            // heldSet empty → no-op
+        XCTAssertFalse(detector.handleFlags(cmdOpt)) // arm
+        XCTAssertTrue(detector.handleFlags([]),
+                      "A stray key at rest must not poison a subsequent clean tap")
+    }
+
     // MARK: - ModifierOnlyHotkeyMonitor classification
 
     func testMonitorClassify_FlagsChangedStripsNoiseToFlags() {
@@ -253,6 +274,17 @@ final class ModifierHotkeyTests: XCTestCase {
         }
     }
 
+    func testMonitorClassify_ScrollAndGesturesAreIntervening() {
+        let gestures: [NSEvent.EventType] = [.scrollWheel, .magnify, .rotate, .swipe]
+        for eventType in gestures {
+            XCTAssertEqual(
+                ModifierOnlyHotkeyMonitor.detectorInput(for: eventType, modifierFlags: [.command]),
+                .intervening,
+                "\(eventType) must count as intervening input"
+            )
+        }
+    }
+
     func testMonitorClassify_IrrelevantTypeIsIgnored() {
         XCTAssertEqual(
             ModifierOnlyHotkeyMonitor.detectorInput(for: .keyUp, modifierFlags: [.command]),
@@ -264,24 +296,22 @@ final class ModifierHotkeyTests: XCTestCase {
         )
     }
 
-    func testMonitorNormalizedFlags_StripsNoise() {
-        XCTAssertEqual(
-            ModifierOnlyHotkeyMonitor.normalizedFlags(from: [.control, .shift, .function]),
-            [.control, .shift]
-        )
-    }
-
     // MARK: - ModifierOnlyHotkeyMonitor lifecycle (smoke)
 
     // A headless xctest process may not deliver real global events and
-    // `addGlobalMonitorForEvents` may return nil there, so these assert only
-    // that start/stop handle the token safely and never crash — not delivery.
-    func testMonitorLifecycle_StartStopDoesNotCrash() {
+    // `addGlobalMonitorForEvents` may return nil there, so the absolute install
+    // result is environment-dependent; what is invariant is that start/stop
+    // handle the token safely and report a consistent result across cycles.
+    func testMonitorLifecycle_StartAfterStopReportsSameResult() {
         let monitor = ModifierOnlyHotkeyMonitor(
             carbonModifiers: UInt32(optionKey | cmdKey),
             callback: {}
         )
-        monitor.start()
+        let started = monitor.start()
+        monitor.stop()
+        let restarted = monitor.start()
+        XCTAssertEqual(started, restarted,
+                       "start() after stop() must report the same install result")
         monitor.stop()
     }
 
@@ -290,32 +320,48 @@ final class ModifierHotkeyTests: XCTestCase {
             carbonModifiers: UInt32(controlKey | shiftKey),
             callback: {}
         )
-        monitor.start()
-        monitor.start() // second start must not install a second monitor
+        let first = monitor.start()
+        let second = monitor.start() // must not install a second monitor
+        XCTAssertEqual(first, second, "Repeated start() must not change monitor state")
         monitor.stop()
-        monitor.stop() // second stop is a no-op
+        monitor.stop() // second stop is a no-op — must not crash
     }
 
     // MARK: - HotkeyManager registration routing
 
-    // `register()` routes on `HotkeyManager.kind(keyCode:)`, so the pure routing
-    // decision is testable without installing a real Carbon hotkey or global
-    // tap. These assert the decision point directly.
+    // These exercise the real `register()`/`unregister()` switch (not just the
+    // pure `kind()` decision, which the `testKind_*` tests already cover),
+    // asserting an observable effect via `registrationFailed`. The stored key
+    // code is saved and restored so the shared UserDefaults suite is untouched.
 
-    func testRegistrationRouting_SentinelSelectsModifierOnlyPath() {
-        XCTAssertEqual(
-            HotkeyManager.kind(keyCode: HotkeyManager.modifierOnlyKeyCode),
-            .modifierOnly,
-            "Sentinel key code must route register() to the modifier-only monitor"
-        )
+    func testRegister_KeyedPathSucceeds() {
+        withStoredHotkey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(optionKey | cmdKey)) {
+            let manager = HotkeyManager(callback: {})
+            manager.register()
+            XCTAssertFalse(manager.registrationFailed,
+                           "Registering a fresh keyed hotkey (⌥⌘S) must succeed")
+            manager.unregister()
+        }
     }
 
-    func testRegistrationRouting_RealKeyCodeSelectsCarbonPath() {
-        XCTAssertEqual(
-            HotkeyManager.kind(keyCode: UInt32(kVK_ANSI_S)),
-            .keyed,
-            "A real key code must route register() to the Carbon path"
-        )
+    func testRegister_ModifierOnlyPathIsDeterministicAndSafe() {
+        withStoredHotkey(
+            keyCode: HotkeyManager.modifierOnlyKeyCode,
+            modifiers: UInt32(optionKey | cmdKey)
+        ) {
+            let manager = HotkeyManager(callback: {})
+            manager.register()
+            let first = manager.registrationFailed
+            manager.unregister()
+            manager.register()
+            let second = manager.registrationFailed
+            manager.unregister()
+            // The global-monitor install result is environment-dependent in a
+            // headless process, but identical register() calls must agree — and
+            // the register()/unregister() cycle must not crash or leak.
+            XCTAssertEqual(first, second,
+                           "Identical modifier-only register() calls must report the same result")
+        }
     }
 
     // `start()` returns whether the global monitor is installed. In a headless
@@ -359,71 +405,39 @@ final class ModifierHotkeyTests: XCTestCase {
         )
     }
 
-    // MARK: - Recorder capture decision
-
-    // `ShortcutRecorderView.decide` is the pure core of the recorder: given the
-    // peak modifier set and whether a real key was pressed, it chooses a keyed
-    // hotkey, a modifier-only combo, or rejects the gesture. UI event delivery
-    // is verified manually (Post-Completion); the decision is tested here.
-
-    func testRecorderDecide_TwoModifiersRecordsModifierOnly() {
-        XCTAssertEqual(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: UInt32(optionKey | cmdKey),
-                keyPressed: false,
-                keyCode: HotkeyManager.modifierOnlyKeyCode
-            ),
-            .modifierOnly(modifiers: UInt32(optionKey | cmdKey))
-        )
-    }
-
-    func testRecorderDecide_ControlShiftRecordsModifierOnly() {
-        XCTAssertEqual(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: UInt32(controlKey | shiftKey),
-                keyPressed: false,
-                keyCode: HotkeyManager.modifierOnlyKeyCode
-            ),
-            .modifierOnly(modifiers: UInt32(controlKey | shiftKey))
-        )
-    }
-
-    func testRecorderDecide_SingleModifierIsInvalid() {
-        XCTAssertEqual(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: UInt32(cmdKey),
-                keyPressed: false,
-                keyCode: HotkeyManager.modifierOnlyKeyCode
-            ),
-            .invalid
-        )
-    }
-
-    func testRecorderDecide_NoModifiersIsInvalid() {
-        XCTAssertEqual(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: 0,
-                keyPressed: false,
-                keyCode: HotkeyManager.modifierOnlyKeyCode
-            ),
-            .invalid
-        )
-    }
-
-    func testRecorderDecide_KeyPressedWinsAsKeyed() {
-        let keyCode = UInt32(kVK_ANSI_S)
-        let mods = UInt32(optionKey | cmdKey)
-        XCTAssertEqual(
-            ShortcutRecorderView.decide(
-                peakCarbonModifiers: mods,
-                keyPressed: true,
-                keyCode: keyCode
-            ),
-            .keyed(keyCode: keyCode, modifiers: mods)
-        )
-    }
+    // Note: the recorder's `flagsChanged` peak-accumulation + release-to-empty
+    // path is driven by live `NSEvent`s and firstResponder state, so it is
+    // verified manually (Post-Completion). Its validity rule
+    // (`isValidModifierOnlyCombo`) is covered by the combo-validation tests
+    // above.
 
     // MARK: - Helpers
+
+    /// Runs `body` with the stored hotkey temporarily set to the given values,
+    /// restoring whatever was in UserDefaults afterwards so the shared suite is
+    /// not mutated across tests.
+    private func withStoredHotkey(keyCode: UInt32, modifiers: UInt32, _ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let keyCodeKey = "hotkeyKeyCode"
+        let modifiersKey = "hotkeyModifiers"
+        let originalKeyCode = defaults.object(forKey: keyCodeKey)
+        let originalModifiers = defaults.object(forKey: modifiersKey)
+        defer {
+            if let originalKeyCode {
+                defaults.set(originalKeyCode, forKey: keyCodeKey)
+            } else {
+                defaults.removeObject(forKey: keyCodeKey)
+            }
+            if let originalModifiers {
+                defaults.set(originalModifiers, forKey: modifiersKey)
+            } else {
+                defaults.removeObject(forKey: modifiersKey)
+            }
+        }
+        defaults.hotkeyKeyCode = keyCode
+        defaults.hotkeyModifiers = modifiers
+        body()
+    }
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {
         NSEvent.keyEvent(

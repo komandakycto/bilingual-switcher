@@ -29,9 +29,15 @@ final class ModifierOnlyHotkeyMonitor {
         case ignore
     }
 
-    /// Event types the single global monitor subscribes to.
-    static let monitoredEvents: NSEvent.EventTypeMask =
-        [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    /// Event types the single global monitor subscribes to. Besides key and
+    /// mouse-down events, scroll and trackpad gestures count as intervening
+    /// input so that holding the combo while scrolling or pinching, then
+    /// releasing, does not spuriously fire.
+    static let monitoredEvents: NSEvent.EventTypeMask = [
+        .flagsChanged, .keyDown,
+        .leftMouseDown, .rightMouseDown, .otherMouseDown,
+        .scrollWheel, .magnify, .rotate, .swipe
+    ]
 
     /// Value-type state machine held as a `var` so its mutations persist
     /// across events.
@@ -49,11 +55,6 @@ final class ModifierOnlyHotkeyMonitor {
         self.callback = callback
     }
 
-    /// Normalizes raw event flags to exactly `{command, option, control, shift}`.
-    static func normalizedFlags(from modifierFlags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        HotkeyModifierHelper.normalize(modifierFlags)
-    }
-
     /// Pure classifier mapping an event type + its flags to a detector input.
     /// Unit-testable without installing a real global tap.
     static func detectorInput(
@@ -62,8 +63,10 @@ final class ModifierOnlyHotkeyMonitor {
     ) -> DetectorInput {
         switch eventType {
         case .flagsChanged:
-            return .flags(normalizedFlags(from: modifierFlags))
-        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return .flags(HotkeyModifierHelper.normalize(modifierFlags))
+        case .keyDown,
+             .leftMouseDown, .rightMouseDown, .otherMouseDown,
+             .scrollWheel, .magnify, .rotate, .swipe:
             return .intervening
         default:
             return .ignore
