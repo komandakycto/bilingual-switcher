@@ -124,6 +124,107 @@ final class ModifierHotkeyTests: XCTestCase {
         XCTAssertTrue(HotkeyModifierHelper.isValidModifierOnlyCombo(carbonModifiers: mask))
     }
 
+    // MARK: - ModifierTapDetector state machine
+
+    private let cmd: NSEvent.ModifierFlags = .command
+    private let opt: NSEvent.ModifierFlags = .option
+    private let cmdOpt: NSEvent.ModifierFlags = [.command, .option]
+
+    /// Drives a detector through a sequence of held-modifier sets, returning the
+    /// `handleFlags` result for each step so tests can assert exactly when it
+    /// fires.
+    private func drive(
+        _ detector: inout ModifierTapDetector,
+        _ sequence: [NSEvent.ModifierFlags]
+    ) -> [Bool] {
+        sequence.map { detector.handleFlags($0) }
+    }
+
+    func testDetector_CleanTapFiresOnceAtFinalRelease() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        let results = drive(&detector, [[], cmd, cmdOpt, cmd, []])
+        XCTAssertEqual(results, [false, false, false, false, true])
+    }
+
+    func testDetector_CoalescedReleaseFires() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        let results = drive(&detector, [[], cmdOpt, []])
+        XCTAssertEqual(results, [false, false, true])
+    }
+
+    func testDetector_KeyDownBetweenDoesNotFire() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        XCTAssertFalse(detector.handleFlags(cmdOpt)) // arm
+        detector.handleInterveningInput()            // keyDown contaminates
+        XCTAssertFalse(detector.handleFlags([]))     // release: no fire
+    }
+
+    func testDetector_MouseDownBetweenDoesNotFire() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        XCTAssertFalse(detector.handleFlags(cmdOpt)) // arm
+        detector.handleInterveningInput()            // mouse-down (same method)
+        XCTAssertFalse(detector.handleFlags([]))     // release: no fire
+    }
+
+    func testDetector_ExtraModifierSupersetContaminates() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        let superset: NSEvent.ModifierFlags = [.command, .option, .shift]
+        let results = drive(&detector, [cmdOpt, superset, cmdOpt, cmd, []])
+        XCTAssertEqual(results, [false, false, false, false, false])
+    }
+
+    func testDetector_NeverEqualsTargetNeverArms() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        let cmdShift: NSEvent.ModifierFlags = [.command, .shift]
+        // Passes through {cmd} then {cmd,shift} but never exactly {cmd,opt}.
+        let results = drive(&detector, [cmd, cmdShift, cmd, []])
+        XCTAssertEqual(results, [false, false, false, false])
+    }
+
+    func testDetector_MultiplePartialReleasesFireOnce() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // Arm, dip to a subset and back several times, then fully release.
+        let results = drive(&detector, [cmdOpt, cmd, cmdOpt, cmd, cmdOpt, []])
+        XCTAssertEqual(results, [false, false, false, false, false, true])
+    }
+
+    func testDetector_ReArmRequiresFullRelease() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // Hold cmd, tap opt repeatedly — never an empty set in between: no fire.
+        let results = drive(&detector, [cmd, cmdOpt, cmd, cmdOpt, cmd])
+        XCTAssertFalse(results.contains(true), "Re-tapping without full release must not fire")
+        // Only the transition to empty (a real full release) fires — exactly once.
+        XCTAssertTrue(detector.handleFlags([]), "Full release fires")
+        XCTAssertFalse(detector.handleFlags([]), "Second empty does not re-fire")
+    }
+
+    func testDetector_HoldOneReTapOtherDoesNotMultiFire() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // Complete one clean tap, then keep holding cmd and re-tap opt.
+        XCTAssertEqual(drive(&detector, [[], cmd, cmdOpt, cmd, []]).last, true)
+        // With cmd held again, re-tapping opt must not produce further fires
+        // until another full release to empty.
+        let results = drive(&detector, [cmd, cmdOpt, cmd, cmdOpt, cmd])
+        XCTAssertFalse(results.contains(true))
+    }
+
+    func testDetector_EmptyTargetNeverFires() {
+        var detector = ModifierTapDetector(targetSet: [])
+        // Any sequence, including repeated empties, must never fire.
+        let results = drive(&detector, [[], cmd, cmdOpt, [], opt, []])
+        XCTAssertFalse(results.contains(true))
+    }
+
+    func testDetector_CapsLockNoiseStillReachesTarget() {
+        var detector = ModifierTapDetector(targetSet: cmdOpt)
+        // Caller normalizes: a Caps-Lock-on user's raw flags still map to target.
+        let noisy: NSEvent.ModifierFlags = [.command, .option, .capsLock]
+        let normalized = HotkeyModifierHelper.normalize(noisy)
+        XCTAssertEqual(normalized, cmdOpt)
+        XCTAssertFalse(detector.handleFlags(normalized)) // arm
+        XCTAssertTrue(detector.handleFlags([]))          // fire
+    }
+
     // MARK: - Helpers
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {
