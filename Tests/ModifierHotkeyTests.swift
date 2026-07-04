@@ -296,6 +296,43 @@ final class ModifierHotkeyTests: XCTestCase {
         monitor.stop() // second stop is a no-op
     }
 
+    // MARK: - HotkeyManager registration routing
+
+    // `register()` routes on `HotkeyManager.kind(keyCode:)`, so the pure routing
+    // decision is testable without installing a real Carbon hotkey or global
+    // tap. These assert the decision point directly.
+
+    func testRegistrationRouting_SentinelSelectsModifierOnlyPath() {
+        XCTAssertEqual(
+            HotkeyManager.kind(keyCode: HotkeyManager.modifierOnlyKeyCode),
+            .modifierOnly,
+            "Sentinel key code must route register() to the modifier-only monitor"
+        )
+    }
+
+    func testRegistrationRouting_RealKeyCodeSelectsCarbonPath() {
+        XCTAssertEqual(
+            HotkeyManager.kind(keyCode: UInt32(kVK_ANSI_S)),
+            .keyed,
+            "A real key code must route register() to the Carbon path"
+        )
+    }
+
+    // `start()` returns whether the global monitor is installed. In a headless
+    // process `addGlobalMonitorForEvents` may return nil, so the absolute value
+    // is environment-dependent; what is invariant is that a repeated start
+    // reflects the same monitor state (idempotent, no second install).
+    func testMonitorStart_ReturnsConsistentInstallResult() {
+        let monitor = ModifierOnlyHotkeyMonitor(
+            carbonModifiers: UInt32(optionKey | cmdKey),
+            callback: {}
+        )
+        let first = monitor.start()
+        let second = monitor.start()
+        XCTAssertEqual(first, second, "Repeated start must reflect the same monitor state")
+        monitor.stop()
+    }
+
     // MARK: - Helpers
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {

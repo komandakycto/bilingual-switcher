@@ -71,12 +71,18 @@ final class ModifierOnlyHotkeyMonitor {
     }
 
     /// Installs the single global monitor. No-op if already started, so
-    /// repeated `start()` calls never leak a second monitor.
-    func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: Self.monitoredEvents) { [weak self] event in
-            self?.handle(event)
+    /// repeated `start()` calls never leak a second monitor. Returns whether the
+    /// monitor is installed afterwards — `false` means
+    /// `addGlobalMonitorForEvents` returned nil, which `HotkeyManager` maps to a
+    /// registration failure.
+    @discardableResult
+    func start() -> Bool {
+        if monitor == nil {
+            monitor = NSEvent.addGlobalMonitorForEvents(matching: Self.monitoredEvents) { [weak self] event in
+                self?.handle(event)
+            }
         }
+        return monitor != nil
     }
 
     /// Removes the global monitor. Idempotent.

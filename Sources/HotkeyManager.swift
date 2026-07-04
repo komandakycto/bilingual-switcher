@@ -32,13 +32,28 @@ class HotkeyManager {
 
     private var hotkeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+    private var modifierMonitor: ModifierOnlyHotkeyMonitor?
     private let callback: () -> Void
 
     init(callback: @escaping () -> Void) {
         self.callback = callback
     }
 
+    /// Registers the stored hotkey, routing to the Carbon keyed path or the
+    /// modifier-only global-monitor path based on the stored key code.
     func register() {
+        switch HotkeyManager.kind(keyCode: UserDefaults.standard.hotkeyKeyCode) {
+        case .keyed:
+            registerKeyedHotkey()
+        case .modifierOnly:
+            registerModifierOnlyHotkey()
+        }
+    }
+
+    /// Carbon `RegisterEventHotKey` path for a regular key + modifier shortcut.
+    /// Uses the global C callback because Carbon event handlers require a C
+    /// function pointer.
+    private func registerKeyedHotkey() {
         globalHotkeyCallback = callback
 
         let keyCode = UserDefaults.standard.hotkeyKeyCode
@@ -80,9 +95,28 @@ class HotkeyManager {
         }
     }
 
+    /// Modifier-only path: drives a passive `NSEvent` global monitor from the
+    /// stored modifier combo. Unlike Carbon, this path has no conflict detection
+    /// against other apps' shortcuts, so `registrationFailed` only trips when the
+    /// global monitor itself is nil (rare). The real failure mode is a
+    /// missing/revoked Accessibility grant — already surfaced by the app's
+    /// existing accessibility flow — not a conflict (see plan Task 1 finding).
+    private func registerModifierOnlyHotkey() {
+        let monitor = ModifierOnlyHotkeyMonitor(
+            carbonModifiers: UserDefaults.standard.hotkeyModifiers,
+            callback: callback
+        )
+        modifierMonitor = monitor
+        registrationFailed = !monitor.start()
+    }
+
     /// Whether the last `register()` call failed (e.g. conflicting shortcut).
     private(set) var registrationFailed = false
 
+    /// Tears down whichever path is active. Both branches are nil-checked, so it
+    /// is safe to call regardless of which path `register()` installed and does
+    /// not leak monitors across repeated `unregister()`/`register()` cycles (as
+    /// `AppDelegate` performs on every prefs save).
     func unregister() {
         if let ref = hotkeyRef {
             UnregisterEventHotKey(ref)
@@ -93,6 +127,9 @@ class HotkeyManager {
             eventHandlerRef = nil
         }
         globalHotkeyCallback = nil
+
+        modifierMonitor?.stop()
+        modifierMonitor = nil
     }
 
     deinit {
