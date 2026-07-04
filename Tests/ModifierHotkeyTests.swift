@@ -225,6 +225,77 @@ final class ModifierHotkeyTests: XCTestCase {
         XCTAssertTrue(detector.handleFlags([]))          // fire
     }
 
+    // MARK: - ModifierOnlyHotkeyMonitor classification
+
+    func testMonitorClassify_FlagsChangedStripsNoiseToFlags() {
+        let input = ModifierOnlyHotkeyMonitor.detectorInput(
+            for: .flagsChanged,
+            modifierFlags: [.command, .option, .capsLock]
+        )
+        XCTAssertEqual(input, .flags([.command, .option]))
+    }
+
+    func testMonitorClassify_KeyDownIsIntervening() {
+        XCTAssertEqual(
+            ModifierOnlyHotkeyMonitor.detectorInput(for: .keyDown, modifierFlags: []),
+            .intervening
+        )
+    }
+
+    func testMonitorClassify_MouseDownsAreIntervening() {
+        let mouseDowns: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        for eventType in mouseDowns {
+            XCTAssertEqual(
+                ModifierOnlyHotkeyMonitor.detectorInput(for: eventType, modifierFlags: []),
+                .intervening,
+                "\(eventType) must count as intervening input"
+            )
+        }
+    }
+
+    func testMonitorClassify_IrrelevantTypeIsIgnored() {
+        XCTAssertEqual(
+            ModifierOnlyHotkeyMonitor.detectorInput(for: .keyUp, modifierFlags: [.command]),
+            .ignore
+        )
+        XCTAssertEqual(
+            ModifierOnlyHotkeyMonitor.detectorInput(for: .mouseMoved, modifierFlags: []),
+            .ignore
+        )
+    }
+
+    func testMonitorNormalizedFlags_StripsNoise() {
+        XCTAssertEqual(
+            ModifierOnlyHotkeyMonitor.normalizedFlags(from: [.control, .shift, .function]),
+            [.control, .shift]
+        )
+    }
+
+    // MARK: - ModifierOnlyHotkeyMonitor lifecycle (smoke)
+
+    // A headless xctest process may not deliver real global events and
+    // `addGlobalMonitorForEvents` may return nil there, so these assert only
+    // that start/stop handle the token safely and never crash — not delivery.
+    func testMonitorLifecycle_StartStopDoesNotCrash() {
+        let monitor = ModifierOnlyHotkeyMonitor(
+            carbonModifiers: UInt32(optionKey | cmdKey),
+            callback: {}
+        )
+        monitor.start()
+        monitor.stop()
+    }
+
+    func testMonitorLifecycle_RepeatedStartStopIsIdempotent() {
+        let monitor = ModifierOnlyHotkeyMonitor(
+            carbonModifiers: UInt32(controlKey | shiftKey),
+            callback: {}
+        )
+        monitor.start()
+        monitor.start() // second start must not install a second monitor
+        monitor.stop()
+        monitor.stop() // second stop is a no-op
+    }
+
     // MARK: - Helpers
 
     private func makeKeyEvent(flags: NSEvent.ModifierFlags) -> NSEvent? {
