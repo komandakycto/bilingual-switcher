@@ -188,8 +188,7 @@ class ShortcutRecorderView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        applyLayerColors()
 
         displayField = NSTextField(labelWithString: shortcutString())
         displayField.frame = bounds.insetBy(dx: 8, dy: 4)
@@ -199,14 +198,36 @@ class ShortcutRecorderView: NSView {
         addSubview(displayField)
     }
 
+    /// Re-resolve the layer's background and border against the view's *own*
+    /// effective appearance. A CALayer holds plain CGColors, which — unlike the
+    /// dynamic NSColors they come from — never re-resolve when the system flips
+    /// between light and dark. `NSColor.cgColor` bakes in whatever appearance is
+    /// current at that instant (the default light/aqua appearance during
+    /// `init`), which is why the field rendered as a solid white box in dark
+    /// mode. Wrapping in `performAsCurrent` resolves against the view's real
+    /// appearance, and re-running from `viewDidChangeEffectiveAppearance`
+    /// keeps it correct when the user toggles the system theme live.
+    private func applyLayerColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+            let border = isRecording ? NSColor.systemOrange : NSColor.separatorColor
+            layer?.borderColor = border.cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyLayerColors()
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         isRecording = true
         peakCarbonModifiers = 0
         displayField.stringValue = "Press shortcut..."
         displayField.textColor = .systemOrange
-        layer?.borderColor = NSColor.systemOrange.cgColor
         layer?.borderWidth = 2
+        applyLayerColors()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -267,8 +288,8 @@ class ShortcutRecorderView: NSView {
         isRecording = false
         displayField.stringValue = shortcutString()
         displayField.textColor = .labelColor
-        layer?.borderColor = NSColor.separatorColor.cgColor
         layer?.borderWidth = 1
+        applyLayerColors()
 
         onChange(keyCode, modifiers)
     }
