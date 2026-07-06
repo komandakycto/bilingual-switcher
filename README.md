@@ -96,6 +96,8 @@ make install   # copies to /Applications
 4. **Press the hotkey** (default: `⌥⌘S` — Option + Command + S)
 5. The text is converted in place
 
+> **Selecting text inside terminal TUIs (Claude Code, vim, htop, lazygit):** full-screen terminal apps capture the mouse, so a plain click-drag is sent to the app instead of creating a selection — leaving nothing for the hotkey to copy. Hold **Shift** while dragging in **kitty**, or **Option** in **iTerm2**, to force a real terminal selection (other terminals have a similar modifier to bypass mouse reporting), then press the hotkey. If you press the hotkey with nothing selected, the app beeps.
+
 ### Changing the hotkey
 
 Menu bar icon → Preferences → click the shortcut field → press your desired combination → Save.

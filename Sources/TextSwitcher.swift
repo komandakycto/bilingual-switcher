@@ -197,6 +197,14 @@ class TextSwitcher {
 
         guard copied, let text = copiedText, !text.isEmpty else {
             Self.diag("bail — no text from clipboard")
+            // Cmd+C put nothing on the clipboard — almost always because no
+            // text was selected, or the focused app grabbed the mouse so the
+            // terminal never made a selection (full-screen TUIs like Claude
+            // Code, vim, htop; in kitty hold Shift while dragging, in iTerm2
+            // hold Option). Without feedback this is an invisible no-op that
+            // reads as "the hotkey is broken." A beep makes "fired but found
+            // nothing to convert" audible so the cause is obvious.
+            NSSound.beep()
             Self.restoreClipboard(savedItems, to: pasteboard)
             return
         }
