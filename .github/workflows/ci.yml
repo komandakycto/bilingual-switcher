@@ -23,7 +23,9 @@ jobs:
       image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v6
-      - run: semgrep scan --config p/swift --config p/secrets --config p/owasp-top-ten --error
+      # We pin actions to readable version tags (e.g. @v6), not commit SHAs, so
+      # exclude the mutable-action-tag rule. Every other security rule stays blocking.
+      - run: semgrep scan --config p/swift --config p/secrets --config p/owasp-top-ten --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag --error
 
   build:
     name: Build

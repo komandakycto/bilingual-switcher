@@ -62,8 +62,10 @@ class PreferencesWindowController: NSWindowController {
         }
         contentView.addSubview(recorderView)
 
-        let hint = NSTextField(labelWithString: "Click the field and press your desired key combination")
-        hint.frame = NSRect(x: 110, y: 206, width: 300, height: 16)
+        let hint = NSTextField(
+            labelWithString: "Click, then press a key combo — or press & release modifiers like \u{2325}\u{2318}"
+        )
+        hint.frame = NSRect(x: 110, y: 206, width: 320, height: 16)
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         contentView.addSubview(hint)
@@ -151,9 +153,20 @@ class PreferencesWindowController: NSWindowController {
 // MARK: - Shortcut Recorder View
 
 class ShortcutRecorderView: NSView {
+    /// A decided recording outcome, consolidated so `commit` has one entry
+    /// point. A keyed hotkey comes straight from `keyDown`; a modifier-only
+    /// combo comes from `flagsChanged` once a valid (≥2-modifier) peak set is
+    /// released to empty. The validity rule itself lives in and is tested via
+    /// `HotkeyModifierHelper.isValidModifierOnlyCombo`.
+    enum RecorderCapture: Equatable {
+        case keyed(keyCode: UInt32, modifiers: UInt32)
+        case modifierOnly(modifiers: UInt32)
+    }
+
     private var keyCode: UInt32
     private var modifiers: UInt32
     private var isRecording = false
+    private var peakCarbonModifiers: UInt32 = 0
     private var displayField: NSTextField!
     private let onChange: (UInt32, UInt32) -> Void
 
@@ -189,6 +202,7 @@ class ShortcutRecorderView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         isRecording = true
+        peakCarbonModifiers = 0
         displayField.stringValue = "Press shortcut..."
         displayField.textColor = .systemOrange
         layer?.borderColor = NSColor.systemOrange.cgColor
@@ -204,10 +218,53 @@ class ShortcutRecorderView: NSView {
         let carbonModifiers = event.carbonModifiers
         guard carbonModifiers != 0 else { return }
 
-        keyCode = UInt32(event.keyCode)
-        modifiers = carbonModifiers
-        isRecording = false
+        // A real key press always wins: record a keyed hotkey immediately.
+        commit(.keyed(keyCode: UInt32(event.keyCode), modifiers: carbonModifiers))
+    }
 
+    override func flagsChanged(with event: NSEvent) {
+        guard isRecording else {
+            super.flagsChanged(with: event)
+            return
+        }
+
+        let currentCarbon = event.carbonModifiers
+        if currentCarbon != 0 {
+            // Each flagsChanged carries the *complete* currently-held set, so
+            // keep the largest simultaneously-held set (most modifiers) rather
+            // than OR-ing across the whole gesture. A rolling press (⌘ down,
+            // ⌘ up, ⌥ down — never both down together) must not record ⌥⌘.
+            if currentCarbon.nonzeroBitCount > peakCarbonModifiers.nonzeroBitCount {
+                peakCarbonModifiers = currentCarbon
+            }
+            return
+        }
+
+        // Flags fell back to empty. Recording is still active here — a keyed
+        // press would have committed and set isRecording=false, which the guard
+        // above already catches — so a valid peak set is a modifier-only tap.
+        if HotkeyModifierHelper.isValidModifierOnlyCombo(carbonModifiers: peakCarbonModifiers) {
+            commit(.modifierOnly(modifiers: peakCarbonModifiers))
+        } else {
+            // A lone modifier is not enough — stay recording and let the user
+            // try again from a clean peak.
+            peakCarbonModifiers = 0
+        }
+    }
+
+    /// Applies a decided capture: stores the values, ends recording, refreshes
+    /// the display and notifies the owner.
+    private func commit(_ capture: RecorderCapture) {
+        switch capture {
+        case .keyed(let code, let combo):
+            keyCode = code
+            modifiers = combo
+        case .modifierOnly(let combo):
+            keyCode = HotkeyManager.modifierOnlyKeyCode
+            modifiers = combo
+        }
+
+        isRecording = false
         displayField.stringValue = shortcutString()
         displayField.textColor = .labelColor
         layer?.borderColor = NSColor.separatorColor.cgColor
@@ -243,7 +300,9 @@ enum HotkeyDisplayHelper {
         if modifiers & UInt32(optionKey) != 0 { parts.append("\u{2325}") }
         if modifiers & UInt32(shiftKey) != 0 { parts.append("\u{21E7}") }
         if modifiers & UInt32(cmdKey) != 0 { parts.append("\u{2318}") }
-        parts.append(KeyCodeNames.name(for: keyCode))
+        if keyCode != HotkeyManager.modifierOnlyKeyCode {
+            parts.append(KeyCodeNames.name(for: keyCode))
+        }
         return parts.joined()
     }
 }

@@ -34,7 +34,7 @@ Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any lan
 - **Any language pair** — dynamically reads your installed keyboard layouts via macOS APIs, no hardcoded mappings
 - **Auto-detection** — detects which layout produced the text and converts to the other
 - **Works everywhere** — GUI apps, terminals (iTerm, Terminal.app, Claude Code), text editors
-- **Configurable hotkey** — set any key combination in Preferences (default: ⌥⌘S)
+- **Configurable hotkey** — set any key combination in Preferences, or a modifier-only tap like ⌥⌘ (default: ⌥⌘S)
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS
 - **Auto-updates** — built-in update checking via Sparkle
@@ -99,6 +99,8 @@ make install   # copies to /Applications
 ### Changing the hotkey
 
 Menu bar icon → Preferences → click the shortcut field → press your desired combination → Save.
+
+You can also bind a **modifier-only** combo like ⌥⌘ — press and release the modifiers together with no other key, Punto Switcher style. Two or more modifiers are required, and it fires only on a clean release, so ⌥⌘C and other real shortcuts still work as usual.
 
 ### Examples
 

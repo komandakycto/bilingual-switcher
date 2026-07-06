@@ -144,7 +144,7 @@ class TextSwitcher {
 
     func switchSelectedText() {
         guard AXIsProcessTrusted() else {
-            showAccessibilityNotification()
+            Self.showAccessibilityNotification()
             return
         }
 
@@ -437,13 +437,26 @@ class TextSwitcher {
         alert.runModal()
     }
 
-    private func showAccessibilityNotification() {
+    /// Title of the shared accessibility-permission alert. Exposed so a unit
+    /// test can assert the wording without running a modal.
+    static let accessibilityAlertTitle = "Accessibility Permission Required"
+
+    /// Body of the shared accessibility-permission alert (System Settings →
+    /// Privacy & Security → Accessibility).
+    static let accessibilityAlertBody = """
+        Grant access in System Settings \u{2192} Privacy & Security \u{2192} Accessibility, \
+        then restart the app.
+        """
+
+    /// Presents the shared accessibility-permission alert. Static so both the
+    /// conversion flow here and `HotkeyManager`'s modifier-only registration
+    /// surface the *same* message when the Accessibility grant is missing —
+    /// the modifier-only global monitor never reaches this flow's own
+    /// `AXIsProcessTrusted()` guard, so it must invoke this directly.
+    static func showAccessibilityNotification() {
         let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = """
-            Grant access in System Settings \u{2192} Privacy & Security \u{2192} Accessibility, \
-            then restart the app.
-            """
+        alert.messageText = accessibilityAlertTitle
+        alert.informativeText = accessibilityAlertBody
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
