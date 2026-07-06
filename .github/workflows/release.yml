@@ -113,26 +113,45 @@ jobs:
       - name: Push appcast and cask updates
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
-          VERSION=${{ steps.version.outputs.version }}
-          for FILE in docs/appcast.xml Casks/bilingual-switcher.rb; do
-            SHA=$(gh api "repos/${{ github.repository }}/contents/${FILE}" --jq '.sha' 2>/dev/null || echo "")
-            CONTENT=$(base64 -i "$FILE")
-            if [ -n "$SHA" ]; then
-              gh api "repos/${{ github.repository }}/contents/${FILE}" \
-                --method PUT \
-                -f message="Update ${FILE} for ${VERSION} [skip ci]" \
-                -f content="$CONTENT" \
-                -f sha="$SHA" \
-                -f branch="main"
-            else
-              gh api "repos/${{ github.repository }}/contents/${FILE}" \
-                --method PUT \
-                -f message="Update ${FILE} for ${VERSION} [skip ci]" \
-                -f content="$CONTENT" \
-                -f branch="main"
-            fi
-          done
+          BRANCH=main
+
+          # Commit both files in ONE commit via the Git Data API. Two separate
+          # Contents-API PUTs pushed two commits back-to-back, which triggered
+          # two overlapping legacy Pages builds that raced and wedged the Pages
+          # environment ("Deployment failed, try again later"). One commit →
+          # one Pages build → no race.
+
+          # Current branch tip and its tree.
+          BASE_SHA=$(gh api "repos/${REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')
+          BASE_TREE=$(gh api "repos/${REPO}/commits/${BASE_SHA}" --jq '.commit.tree.sha')
+
+          # Upload each changed file as a blob.
+          APPCAST_BLOB=$(gh api "repos/${REPO}/git/blobs" --method POST \
+            -f content="$(base64 -i docs/appcast.xml)" -f encoding=base64 --jq '.sha')
+          CASK_BLOB=$(gh api "repos/${REPO}/git/blobs" --method POST \
+            -f content="$(base64 -i Casks/bilingual-switcher.rb)" -f encoding=base64 --jq '.sha')
+
+          # New tree layering both blobs onto the base tree.
+          TREE_SHA=$(jq -n \
+            --arg base "$BASE_TREE" --arg appcast "$APPCAST_BLOB" --arg cask "$CASK_BLOB" \
+            '{base_tree: $base, tree: [
+               {path: "docs/appcast.xml",            mode: "100644", type: "blob", sha: $appcast},
+               {path: "Casks/bilingual-switcher.rb", mode: "100644", type: "blob", sha: $cask}
+             ]}' | gh api "repos/${REPO}/git/trees" --method POST --input - --jq '.sha')
+
+          # Single commit on top of the current tip.
+          COMMIT_SHA=$(jq -n \
+            --arg msg "Update appcast and cask for ${VERSION} [skip ci]" \
+            --arg tree "$TREE_SHA" --arg parent "$BASE_SHA" \
+            '{message: $msg, tree: $tree, parents: [$parent]}' \
+            | gh api "repos/${REPO}/git/commits" --method POST --input - --jq '.sha')
+
+          # Fast-forward the branch to the new commit.
+          gh api "repos/${REPO}/git/refs/heads/${BRANCH}" --method PATCH \
+            -f sha="$COMMIT_SHA" -F force=false
 
       - name: Create GitHub Release
         env:
