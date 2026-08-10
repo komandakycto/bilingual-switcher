@@ -16,16 +16,10 @@ COMMON_FLAGS = -O \
                -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 INSTALL_DIR  = /Applications
 
-# Code-signing identity. The default `-` is ad-hoc, which is fine locally.
-#
-# Ad-hoc signatures have no stable identity, so macOS derives the app's
-# designated requirement from the binary's cdhash — which changes on every
-# build. TCC stores that requirement when the user grants Accessibility and
-# re-checks it on every AXIsProcessTrusted() call, so a new build silently
-# invalidates the grant: System Settings still shows the toggle on, but the
-# app is untrusted (issue #12). Release builds therefore pass a stable
-# self-signed identity, which yields a cdhash-independent requirement
-# (`identifier "..." and certificate root = H"..."`) that survives updates.
+# Code-signing identity. Default `-` is ad-hoc: fine locally, never for a
+# release. Ad-hoc pins the designated requirement to the binary's cdhash, so
+# each build invalidates the user's Accessibility grant (issue #12). Releases
+# pass a stable identity, which keeps the requirement constant across builds.
 SIGN_IDENTITY ?= -
 SIGN_KEYCHAIN ?=
 CODESIGN_ARGS = --force --deep --sign "$(SIGN_IDENTITY)" \
@@ -69,10 +63,8 @@ $(APP_BUNDLE): $(SOURCES) Info.plist Resources/AppIcon.icns Resources/MenuBarIco
 	@codesign $(CODESIGN_ARGS) $(APP_BUNDLE)
 	@echo "✓ Built $(APP_BUNDLE) (universal)"
 
-# Fails the build when the app ended up ad-hoc signed, which would silently
-# break every user's Accessibility grant on update (issue #12). Guards against
-# a release where the signing identity failed to import and `make` quietly fell
-# back to the ad-hoc default.
+# Catches a release where the identity failed to import and the build silently
+# fell back to the ad-hoc default.
 .PHONY: verify-signing
 verify-signing: $(APP_BUNDLE)
 	@codesign -d --requirements - $(APP_BUNDLE) 2>/dev/null | tail -1

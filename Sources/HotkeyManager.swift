@@ -109,9 +109,7 @@ class HotkeyManager {
     /// `AXIsProcessTrusted()` guard (which shows the alert), but this path never
     /// gets that far. So surface the same accessibility alert here when
     /// untrusted. This runs on every `register()` (launch + each prefs save) but
-    /// only while the grant is missing, and stops once it is granted;
-    /// `presentIfNeeded` is a no-op when trusted and suppresses itself under
-    /// XCTest and while another copy of the alert is already up.
+    /// only while the grant is missing, and stops once it is granted.
     private func registerModifierOnlyHotkey() {
         AccessibilityPermission.presentIfNeeded()
         let monitor = ModifierOnlyHotkeyMonitor(

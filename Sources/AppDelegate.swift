@@ -28,17 +28,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         KeyboardLayoutMap.startObservingLayoutChanges()
         setupMenuBar()
 
-        // Surface a missing grant at launch rather than on the first hotkey
-        // press, and distinguish a first run from a grant invalidated by an
-        // update (issue #12). Runs after setupMenuBar() so the status item is
-        // already there when the modal goes up — otherwise dismissing the
-        // alert is the only way to get the app's only UI to appear.
+        // After setupMenuBar() so the status item exists before the modal goes
+        // up — the alert blocks the main thread.
         AccessibilityPermission.recordTrustIfNeeded()
         AccessibilityPermission.presentIfNeeded()
-        // Re-register once the grant lands, so the user never has to restart
-        // the app. Matters most for the modifier-only path, whose global
-        // NSEvent monitor stays silently dead until it is recreated while
-        // trusted.
+        // The modifier-only path's global NSEvent monitor stays silently dead
+        // until recreated while trusted, so re-register once the grant lands.
         AccessibilityPermission.startWatching { [weak self] in
             guard let self else { return }
             self.hotkeyManager.unregister()

@@ -1,43 +1,30 @@
 import ApplicationServices
 import Cocoa
 
-/// Accessibility (TCC) permission state, and recovery when a stored grant has
-/// gone stale.
+/// Accessibility (TCC) permission state and recovery.
 ///
-/// macOS records the app's *designated requirement* when the user grants
-/// Accessibility, then re-checks it on every `AXIsProcessTrusted()` call.
-/// Releases up to 1.2.0 were ad-hoc signed, which pins that requirement to the
-/// binary's cdhash — so every update silently invalidated the grant while
-/// System Settings kept showing the toggle as ON (issue #12). Builds signed
-/// with the project's stable identity produce a cdhash-independent requirement
-/// and the grant now survives updates; but anyone upgrading *from* an ad-hoc
-/// build still has a cdhash pinned in TCC and has to re-add the entry once.
-///
-/// That case needs different wording from a plain first run: telling someone
-/// who already ticked the box to "grant access and restart" is wrong, because
-/// no amount of restarting refreshes a stale requirement. Only removing and
-/// re-adding the entry does.
+/// macOS stores the app's designated requirement when the grant is given and
+/// re-checks it on every `AXIsProcessTrusted()` call. Releases up to 1.2.0 were
+/// ad-hoc signed, pinning that requirement to the binary's cdhash, so updating
+/// invalidated the grant while System Settings still showed the toggle on
+/// (issue #12). Stable-identity builds survive updates, but anyone upgrading
+/// from an ad-hoc build must re-add the entry once — and for them "grant access
+/// and restart" is wrong advice, hence the separate `stale` state.
 enum AccessibilityPermission {
 
-    /// What the app should tell the user about the Accessibility grant.
     enum State: Equatable {
-        /// Trusted right now — nothing to do.
         case granted
-        /// Never observed as trusted on this machine: ordinary first run.
         case notGranted
-        /// Observed as trusted under an earlier build and untrusted now: the
-        /// requirement stored in TCC no longer matches this binary.
+        /// Was trusted under an earlier build: the requirement stored in TCC no
+        /// longer matches this binary.
         case stale
     }
 
-    /// Last app version seen running with the grant active. Whether this key
-    /// exists is what separates "never granted" from "grant went stale".
+    /// Whether this key exists separates "never granted" from "went stale".
     static let lastTrustedVersionKey = "lastTrustedBuildVersion"
 
-    /// True only inside the XCTest harness (which links `XCTestCase`; the
-    /// shipping app does not). Keeps the headless suite — which exercises the
-    /// registration paths in a process that is not accessibility-trusted —
-    /// from blocking forever on `runModal()`.
+    /// The shipping app does not link XCTestCase; the headless suite does, and
+    /// runs untrusted, so it must never reach `runModal()`.
     private static var isRunningUnderXCTest: Bool {
         NSClassFromString("XCTestCase") != nil
     }
@@ -48,7 +35,7 @@ enum AccessibilityPermission {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
     }
 
-    /// Pure state decision, split out so it can be unit-tested without TCC.
+    /// Split out from `currentState` so it is testable without TCC.
     static func state(isTrusted: Bool, lastTrustedVersion: String?) -> State {
         if isTrusted { return .granted }
         return lastTrustedVersion == nil ? .notGranted : .stale
@@ -61,9 +48,6 @@ enum AccessibilityPermission {
         )
     }
 
-    /// Remembers that this build ran while trusted. Called at launch and again
-    /// when the watcher sees the grant appear, so a later signature change or
-    /// revocation reads as `.stale` rather than a first run.
     static func recordTrustIfNeeded() {
         guard isTrusted else { return }
         UserDefaults.standard.set(bundleVersion, forKey: lastTrustedVersionKey)
@@ -81,9 +65,6 @@ enum AccessibilityPermission {
         and turn on Bilingual Switcher.
         """
 
-    /// Deliberately explicit that the existing tick-box is the problem. Users
-    /// who hit this have already granted the permission and will otherwise
-    /// conclude the app is simply broken.
     static let staleBody = """
         Bilingual Switcher already appears in System Settings \u{2192} Privacy & \
         Security \u{2192} Accessibility, but macOS no longer accepts that entry: \
@@ -109,9 +90,8 @@ enum AccessibilityPermission {
         NSWorkspace.shared.open(url)
     }
 
-    /// Drops the stale TCC row so macOS can record a fresh one against this
-    /// binary's signature. Returns false when `tccutil` fails, in which case
-    /// the caller should fall back to the manual remove-and-re-add route.
+    /// Drops the stale TCC row so macOS can record a fresh one. Returns false
+    /// when `tccutil` fails, leaving the caller to fall back to manual steps.
     @discardableResult
     static func resetGrant() -> Bool {
         guard let bundleID = Bundle.main.bundleIdentifier else { return false }
@@ -131,7 +111,6 @@ enum AccessibilityPermission {
             NSLog("tccutil reset exited with status \(task.terminationStatus)")
             return false
         }
-        // The row is gone; ask macOS to re-add it with this build's signature.
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         return true
@@ -139,9 +118,6 @@ enum AccessibilityPermission {
 
     // MARK: - Alert
 
-    /// Guards against stacking modals: `HotkeyManager.register()` runs at
-    /// launch and on every preferences save, and `TextSwitcher` checks on every
-    /// hotkey press.
     private static var isPresenting = false
 
     private static func activate() {
@@ -152,27 +128,23 @@ enum AccessibilityPermission {
         }
     }
 
-    /// Shows the alert matching the current state. No-op while trusted, so
-    /// callers may invoke it unconditionally.
+    /// No-op while trusted, so callers may invoke it unconditionally.
     static func presentIfNeeded() {
         let state = currentState
         guard state != .granted, !isPresenting, !isRunningUnderXCTest else { return }
         isPresenting = true
         defer { isPresenting = false }
 
-        // The app runs as an accessory: no Dock icon, no windows. A modal put
-        // up from the background opens *behind* the frontmost app's windows,
-        // and `runModal()` then blocks the main thread — so the status item
-        // stops responding too and the app looks hung rather than merely
-        // quiet. Come to the front first so the alert is actually seen.
+        // Accessory app: an alert raised from the background opens behind the
+        // frontmost windows, and runModal() then blocks the status item too, so
+        // the app looks hung. macOS 14 may refuse the activation request, hence
+        // the window level as well.
         activate()
 
         let alert = NSAlert()
         alert.messageText = alertTitle
         alert.informativeText = body(for: state)
         alert.alertStyle = .warning
-        // macOS 14 may refuse a background app's activation request, so do not
-        // rely on `activate()` alone: float the panel above ordinary windows.
         alert.window.level = .floating
         alert.addButton(withTitle: "Open System Settings")
         if state == .stale {
@@ -194,8 +166,8 @@ enum AccessibilityPermission {
 
     private static var watchTimer: Timer?
 
-    /// Polls until the grant appears, then fires `onGranted` once. Removes the
-    /// need to tell users to restart the app after ticking the box.
+    /// Polls until the grant appears, then fires `onGranted` once, so the user
+    /// never has to restart the app after ticking the box.
     static func startWatching(onGranted: @escaping () -> Void) {
         watchTimer?.invalidate()
         watchTimer = nil

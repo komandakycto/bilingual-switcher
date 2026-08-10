@@ -32,12 +32,6 @@ jobs:
           brew install swiftlint
           make lint
 
-      # Signs with a stable self-signed identity so the app's designated
-      # requirement stays constant across releases. Ad-hoc signing pins the
-      # requirement to the binary's cdhash, which silently invalidated every
-      # user's Accessibility grant on each update (issue #12). The cert is not
-      # notarized and is not trusted by Gatekeeper — that is unchanged from
-      # ad-hoc — but TCC matches on the certificate hash, not on chain trust.
       - name: Import signing certificate
         env:
           CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
@@ -46,6 +40,7 @@ jobs:
           set -euo pipefail
           KC="$RUNNER_TEMP/build.keychain-db"
           P12="$RUNNER_TEMP/id.p12"
+          trap 'rm -f "$P12"' EXIT
           echo "$CERT_P12" | base64 --decode > "$P12"
 
           security create-keychain -p "" "$KC"
@@ -54,24 +49,21 @@ jobs:
           security import "$P12" -k "$KC" -P "$CERT_PASSWORD" -T /usr/bin/codesign -A
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KC"
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
-          rm -f "$P12"
 
-          # `find-identity -v` lists only chain-trusted identities and would
-          # return nothing here: the cert is self-signed, so it is reported as
-          # CSSMERR_TP_NOT_TRUSTED. codesign still signs with it when given the
-          # SHA-1 hash, and TCC still matches it. So look it up without -v.
+          # The cert is self-signed, so `find-identity -v` reports nothing
+          # (CSSMERR_TP_NOT_TRUSTED); codesign still signs by SHA-1 hash.
           HASH=$(security find-identity "$KC" | sed -n 's/.*\([0-9A-F]\{40\}\).*/\1/p' | head -1)
-          if [ -z "$HASH" ]; then
-            echo "No signing identity found in the imported keychain" >&2
-            exit 1
-          fi
+          [ -n "$HASH" ] || { echo "No signing identity in the imported keychain" >&2; exit 1; }
+
+          # Every later `make` inherits these: the Makefile uses ?=, which does
+          # not override the environment. Keeps dmg/zip signed if make rebuilds.
           echo "SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
           echo "SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
 
       - name: Build
-        run: |
-          make VERSION=${{ steps.version.outputs.version }} \
-               SIGN_IDENTITY="$SIGN_IDENTITY" SIGN_KEYCHAIN="$SIGN_KEYCHAIN"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: make VERSION="$VERSION"
 
       - name: Verify signing identity is stable
         run: make verify-signing
