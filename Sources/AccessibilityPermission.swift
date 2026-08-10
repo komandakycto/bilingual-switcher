@@ -144,6 +144,14 @@ enum AccessibilityPermission {
     /// hotkey press.
     private static var isPresenting = false
 
+    private static func activate() {
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// Shows the alert matching the current state. No-op while trusted, so
     /// callers may invoke it unconditionally.
     static func presentIfNeeded() {
@@ -152,10 +160,20 @@ enum AccessibilityPermission {
         isPresenting = true
         defer { isPresenting = false }
 
+        // The app runs as an accessory: no Dock icon, no windows. A modal put
+        // up from the background opens *behind* the frontmost app's windows,
+        // and `runModal()` then blocks the main thread — so the status item
+        // stops responding too and the app looks hung rather than merely
+        // quiet. Come to the front first so the alert is actually seen.
+        activate()
+
         let alert = NSAlert()
         alert.messageText = alertTitle
         alert.informativeText = body(for: state)
         alert.alertStyle = .warning
+        // macOS 14 may refuse a background app's activation request, so do not
+        // rely on `activate()` alone: float the panel above ordinary windows.
+        alert.window.level = .floating
         alert.addButton(withTitle: "Open System Settings")
         if state == .stale {
             alert.addButton(withTitle: "Reset Permission")
