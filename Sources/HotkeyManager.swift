@@ -30,15 +30,6 @@ class HotkeyManager {
         keyCode == modifierOnlyKeyCode ? .modifierOnly : .keyed
     }
 
-    /// True only inside the XCTest harness (which links `XCTestCase`; the
-    /// shipping app does not). Used to suppress the modal accessibility alert in
-    /// `registerModifierOnlyHotkey()` so the headless test suite — which
-    /// exercises the modifier-only `register()` path in a process that is not
-    /// accessibility-trusted — never blocks on `runModal()`.
-    private static var isRunningUnderXCTest: Bool {
-        NSClassFromString("XCTestCase") != nil
-    }
-
     private var hotkeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var modifierMonitor: ModifierOnlyHotkeyMonitor?
@@ -118,11 +109,11 @@ class HotkeyManager {
     /// `AXIsProcessTrusted()` guard (which shows the alert), but this path never
     /// gets that far. So surface the same accessibility alert here when
     /// untrusted. This runs on every `register()` (launch + each prefs save) but
-    /// only while the grant is missing, and stops once it is granted.
+    /// only while the grant is missing, and stops once it is granted;
+    /// `presentIfNeeded` is a no-op when trusted and suppresses itself under
+    /// XCTest and while another copy of the alert is already up.
     private func registerModifierOnlyHotkey() {
-        if !AXIsProcessTrusted() && !HotkeyManager.isRunningUnderXCTest {
-            TextSwitcher.showAccessibilityNotification()
-        }
+        AccessibilityPermission.presentIfNeeded()
         let monitor = ModifierOnlyHotkeyMonitor(
             carbonModifiers: UserDefaults.standard.hotkeyModifiers,
             callback: callback

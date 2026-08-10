@@ -91,7 +91,7 @@ make install   # copies to /Applications
 ## Usage
 
 1. **Launch** the app — it appears as an icon in the menu bar
-2. **Grant Accessibility permission** when prompted (required to read/replace selected text)
+2. **Grant Accessibility permission** when asked — System Settings → Privacy & Security → Accessibility (required to read/replace selected text). The app picks it up as soon as you turn it on; no restart needed.
 3. **Select** the wrongly-typed text in any app
 4. **Press the hotkey** (default: `⌥⌘S` — Option + Command + S)
 5. The text is converted in place
@@ -128,7 +128,19 @@ With 3+ layouts installed, the app tracks the two you most recently switched bet
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
-- Accessibility permission (prompted on first launch)
+- Accessibility permission (the app asks on first launch)
+
+### Upgrading from 1.2.0 or earlier
+
+Those builds were ad-hoc signed, so macOS tied your Accessibility grant to that
+exact binary. Updating past them invalidates it: the app still shows in System
+Settings → Privacy & Security → Accessibility with the toggle on, but macOS no
+longer honours it. Toggling it off and on does not help.
+
+Remove **Bilingual Switcher** from that list with **−**, then add it back with
+**+**. The app offers to do this for you when it detects the situation. This is
+a one-time step — releases are now signed with a stable identity, so the
+permission survives future updates.
 
 ## Contributing
 

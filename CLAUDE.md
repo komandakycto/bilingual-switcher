@@ -44,6 +44,29 @@ HotkeyManager (Carbon hotkey or NSEvent modifier monitor) → TextSwitcher.switc
 - `ModifierTapDetector` — Pure fire-on-full-release state machine (no AppKit), the correctness core, heavily unit-tested. Arms when held modifiers exactly equal the target set; contaminates on any intervening key/mouse-down or extra modifier; fires only when all modifiers release cleanly. Firing on empty guarantees no modifier is held when the synthesized Cmd+C is posted.
 - `ModifierOnlyHotkeyMonitor` — Thin AppKit glue: one global `NSEvent` monitor (`.flagsChanged` + key/mouse-down) feeds a `ModifierTapDetector` and invokes the callback on fire.
 
+## Code Signing
+
+Release builds must use a **stable signing identity**, not ad-hoc. Ad-hoc
+signing (`codesign --sign -`) makes macOS derive the app's designated
+requirement from the binary's cdhash, which changes every build. TCC stores that
+requirement when the user grants Accessibility and re-checks it on every
+`AXIsProcessTrusted()` call, so each release silently invalidated everyone's
+grant while System Settings still showed the toggle on (issue #12).
+
+- `SIGN_IDENTITY` / `SIGN_KEYCHAIN` are Makefile variables. Default is `-`
+  (ad-hoc) — fine for local dev, never for a release.
+- `release.yml` imports a self-signed cert from `SIGNING_CERT_P12` /
+  `SIGNING_CERT_PASSWORD` secrets into a throwaway keychain. The cert is
+  self-signed, so `security find-identity -v` reports nothing (it is
+  `CSSMERR_TP_NOT_TRUSTED`); look it up **without `-v`** and sign by SHA-1 hash.
+- `make verify-signing` fails the build if the app ended up ad-hoc signed. CI
+  runs it right after `make`; do not remove it.
+- The identity is **not** notarized, so Gatekeeper still rejects the app — users
+  need right-click → Open. That is unchanged from before and is a separate
+  problem from the TCC one.
+- Losing the private key means changing the certificate, which breaks every
+  user's grant again. It has no backup in this repo by design.
+
 ## SwiftLint Rules
 
 CI runs `swiftlint --strict`. Key limits: line length 200 (error), identifier min 2 chars (exceptions: `id`, `x`, `y`), function body 100 lines, file 1000 lines. Only `Sources/` is linted (not Tests).
