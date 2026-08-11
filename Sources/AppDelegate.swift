@@ -27,6 +27,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardLayoutMap.startObservingLayoutChanges()
         setupMenuBar()
+
+        // After setupMenuBar() so the status item exists before the modal goes
+        // up — the alert blocks the main thread.
+        AccessibilityPermission.recordTrustIfNeeded()
+        AccessibilityPermission.presentIfNeeded()
+        // The modifier-only path's global NSEvent monitor stays silently dead
+        // until recreated while trusted, so re-register once the grant lands.
+        AccessibilityPermission.startWatching { [weak self] in
+            guard let self else { return }
+            self.hotkeyManager.unregister()
+            self.hotkeyManager.register()
+        }
     }
 
     // MARK: - Menu Bar

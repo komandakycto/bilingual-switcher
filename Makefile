@@ -16,6 +16,15 @@ COMMON_FLAGS = -O \
                -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 INSTALL_DIR  = /Applications
 
+# Code-signing identity. Default `-` is ad-hoc: fine locally, never for a
+# release. Ad-hoc pins the designated requirement to the binary's cdhash, so
+# each build invalidates the user's Accessibility grant (issue #12). Releases
+# pass a stable identity, which keeps the requirement constant across builds.
+SIGN_IDENTITY ?= -
+SIGN_KEYCHAIN ?=
+CODESIGN_ARGS = --force --deep --sign "$(SIGN_IDENTITY)" \
+                $(if $(SIGN_KEYCHAIN),--keychain "$(SIGN_KEYCHAIN)",)
+
 TESTS          = $(filter-out Tests/ASanRunner.swift,$(wildcard Tests/*.swift))
 SOURCES_NO_MAIN = $(filter-out Sources/main.swift,$(SOURCES))
 XCTEST_PLAT    = $(shell xcode-select -p)/Platforms/MacOSX.platform/Developer
@@ -51,8 +60,17 @@ $(APP_BUNDLE): $(SOURCES) Info.plist Resources/AppIcon.icns Resources/MenuBarIco
 	@cp Resources/MenuBarIcon.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon.png
 	@cp Resources/MenuBarIcon@2x.png $(APP_BUNDLE)/Contents/Resources/MenuBarIcon@2x.png 2>/dev/null || true
 	@rsync -a --delete $(SPARKLE_DIR) $(APP_BUNDLE)/Contents/Frameworks/
-	@codesign --force --deep --sign - $(APP_BUNDLE)
+	@codesign $(CODESIGN_ARGS) $(APP_BUNDLE)
 	@echo "✓ Built $(APP_BUNDLE) (universal)"
+
+# Catches a release where the identity failed to import and the build silently
+# fell back to the ad-hoc default.
+.PHONY: verify-signing
+verify-signing: $(APP_BUNDLE)
+	@codesign -d --requirements - $(APP_BUNDLE) 2>/dev/null | tail -1
+	@codesign -d --requirements - $(APP_BUNDLE) 2>/dev/null | grep -q 'certificate root' \
+		|| { echo "FAIL: ad-hoc signature - Accessibility grants would break on update"; exit 1; }
+	@echo "OK: stable signing identity"
 
 # --- Icons ---
 

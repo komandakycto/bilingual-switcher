@@ -25,3 +25,12 @@ DerivedData/
 
 # Internal plans
 docs/plans/
+
+# Code-signing key material — never commit (this repo is public).
+# The signing identity lives in GitHub Secrets; local copies stay untracked.
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
+*.mobileprovision

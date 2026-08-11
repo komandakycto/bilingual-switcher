@@ -283,20 +283,72 @@ final class ModifierHotkeyTests: XCTestCase {
 
     // MARK: - Shared accessibility alert copy
 
-    // The modifier-only registration path reuses TextSwitcher's accessibility
+    // The modifier-only registration path reuses the shared accessibility
     // alert so the user gets the same guidance the conversion flow already
     // surfaces. Assert the shared copy (not the modal itself, which can't run
     // headless) so both paths stay in lockstep.
     func testAccessibilityAlert_SharedCopyIsPresent() {
-        XCTAssertEqual(TextSwitcher.accessibilityAlertTitle, "Accessibility Permission Required")
+        XCTAssertEqual(AccessibilityPermission.alertTitle, "Accessibility Permission Required")
         XCTAssertTrue(
-            TextSwitcher.accessibilityAlertBody.contains("Privacy & Security"),
+            AccessibilityPermission.notGrantedBody.contains("Privacy & Security"),
             "Body must direct the user to Privacy & Security → Accessibility"
         )
         XCTAssertTrue(
-            TextSwitcher.accessibilityAlertBody.contains("Accessibility"),
+            AccessibilityPermission.notGrantedBody.contains("Accessibility"),
             "Body must name the Accessibility pane"
         )
+    }
+
+    // MARK: - Accessibility permission state
+
+    // The whole point of the state split: someone whose grant was invalidated
+    // by an update has already ticked the box, so the first-run wording ("grant
+    // access, then restart") sends them in a circle. Only removing and
+    // re-adding the entry refreshes the requirement TCC stored (issue #12).
+    func testPermissionState_TrustedIsGrantedRegardlessOfHistory() {
+        XCTAssertEqual(
+            AccessibilityPermission.state(isTrusted: true, lastTrustedVersion: nil),
+            .granted
+        )
+        XCTAssertEqual(
+            AccessibilityPermission.state(isTrusted: true, lastTrustedVersion: "1.2.0"),
+            .granted
+        )
+    }
+
+    func testPermissionState_NoHistoryMeansFirstRun() {
+        XCTAssertEqual(
+            AccessibilityPermission.state(isTrusted: false, lastTrustedVersion: nil),
+            .notGranted
+        )
+    }
+
+    func testPermissionState_UntrustedAfterBeingTrustedIsStale() {
+        XCTAssertEqual(
+            AccessibilityPermission.state(isTrusted: false, lastTrustedVersion: "1.2.0"),
+            .stale
+        )
+    }
+
+    func testPermissionCopy_StaleWordingContradictsTheVisibleToggle() {
+        let body = AccessibilityPermission.staleBody
+        XCTAssertTrue(
+            body.contains("already appears"),
+            "Stale copy must acknowledge the app is already listed, or it reads as a lie"
+        )
+        XCTAssertTrue(
+            body.contains("\u{2212}") && body.contains("\u{002B}"),
+            "Stale copy must spell out the remove (−) then re-add (+) steps"
+        )
+        XCTAssertFalse(
+            body.contains("restart the app"),
+            "Restarting cannot refresh a stale TCC requirement; do not suggest it"
+        )
+    }
+
+    func testPermissionCopy_BodyMatchesState() {
+        XCTAssertEqual(AccessibilityPermission.body(for: .stale), AccessibilityPermission.staleBody)
+        XCTAssertEqual(AccessibilityPermission.body(for: .notGranted), AccessibilityPermission.notGrantedBody)
     }
 
     // MARK: - ModifierOnlyHotkeyMonitor lifecycle (smoke)
