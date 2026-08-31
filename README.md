@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-A lightweight macOS menu bar app that fixes text typed in the wrong keyboard layout —<br>
-like Punto Switcher, but for <em>any</em> language pair.
+Fix text typed in the wrong keyboard layout — for <em>any</em> two layouts<br>
+installed on your Mac, not just English and Russian.
 </p>
 
 ---
@@ -20,9 +20,13 @@ Ever type a whole sentence only to realize your keyboard was in the wrong langua
 
 `Ghbdtn vbh!` instead of `Привет мир!` — or `Руддщ Цщкдв!` instead of `Hello World!`
 
-Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any language pair — not just English and Russian.
+Select the text, press **⌥⌘S**, and it's fixed in place.
 
-> **Русский:** Bilingual Switcher — альтернатива Punto Switcher для macOS. Выделил текст, нажал хоткей — раскладка исправлена (`ghbdtn` → `привет`). Работает с любой парой языков, не только русский и английский. См. раздел [Install](#install) для установки через Homebrew или DMG.
+The app reads the character map of every layout macOS has installed, so it works
+for pairs that hardcoded English↔Russian tools can't reach: Greek, Hebrew,
+Armenian, Georgian — and same-script pairs like QWERTY↔AZERTY or QWERTY↔QWERTZ.
+
+> **Русский:** Bilingual Switcher исправляет текст, набранный не в той раскладке: выделил, нажал хоткей — готово (`ghbdtn` → `привет`). Работает с любой парой раскладок, установленных в системе, а не только с русской и английской. Установка через Homebrew или DMG — см. раздел [Install](#install).
 
 <p align="center">
   <img src="docs/demo.gif" alt="Demo: typing in the wrong layout in Slack, then fixing it with one hotkey" width="720">
@@ -30,26 +34,52 @@ Select the text, press **⌥⌘S**, and it's instantly fixed. Works with any lan
 
 ## Features
 
-- **Instant conversion** — select text, press hotkey, done
-- **Any language pair** — dynamically reads your installed keyboard layouts via macOS APIs, no hardcoded mappings
-- **Auto-detection** — detects which layout produced the text and converts to the other
+- **Any pair of layouts** — reads your installed layouts through the macOS `UCKeyTranslate` API at runtime. No hardcoded mappings, no built-in language list
+- **Never watches you type** — no event tap, no keystroke buffer. macOS wakes the app on your hotkey and at no other moment
+- **Deterministic** — converts exactly what you selected, key by key, from the system's own layout tables. No word lists, no language model, no guessing
+- **Nothing happens on its own** — it fires when you press the hotkey. Your text is never rewritten while you type
 - **Works everywhere** — GUI apps, terminals (iTerm, Terminal.app, Claude Code), text editors
-- **Configurable hotkey** — set any key combination in Preferences, or a modifier-only tap like ⌥⌘ (default: ⌥⌘S)
+- **Configurable hotkey** — any key combination, or a modifier-only tap like ⌥⌘ (default: ⌥⌘S)
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS
 - **Auto-updates** — built-in update checking via Sparkle
-- **Privacy-first** — no telemetry, no data collection; only network access is optional update checks
-- **Lightweight** — native Swift, no Electron, minimal resource usage
+- **Small enough to read** — ~2,300 lines of Swift, under 5 MB installed, no Electron
+
+## What it doesn't do
+
+These are design choices, and they are the reason the app is worth trusting with
+an Accessibility grant:
+
+- **No keylogger.** The app installs no `CGEventTap`. In the default mode it registers your shortcut with the system, which then delivers that one combination and nothing else. If you bind a *modifier-only* combo, the app adds a single passive monitor that can see key events — it reads only *that* a key was pressed, to cancel the gesture, never which key ([`ModifierOnlyHotkeyMonitor.swift`](Sources/ModifierOnlyHotkeyMonitor.swift)).
+- **No Input Monitoring permission.** That grant exists to gate event taps. The app doesn't use one, so macOS never asks.
+- **No dictionaries, no autocorrect.** Nothing is guessed from your vocabulary, so code, transliteration, brand names and mixed technical text convert as reliably as prose.
+- **No telemetry.** No analytics, no crash reporting, no accounts. The only network access is the optional Sparkle update check.
+
+Your clipboard *is* used: the app copies the selection with ⌘C, then puts the
+clipboard back exactly as it was — every item, every data type, in the original
+order. See [How it works](#how-it-works).
+
+Verifying the above is meant to be practical rather than aspirational: the whole
+source is ~2,300 lines of Swift, and every commit runs 128 tests in CI — plus the
+same suite again under AddressSanitizer, and a static analysis pass.
 
 ## Supported Languages
 
-The app works with **any keyboard layout installed on your Mac** that uses physical key mapping — this covers most languages:
+The app works with **any keyboard layout installed on your Mac** that maps
+physical keys to characters — which covers most languages, and both directions
+of any pair.
 
 **Tested:** English, Russian, Ukrainian, French, German, Spanish, Portuguese, Italian
 
-**Should work (same mechanism):** Polish, Czech, Turkish, Swedish, Norwegian, Danish, Dutch, Romanian, Hungarian, and any other standard keyboard layout
+**Same-script pairs work too:** QWERTY↔AZERTY, QWERTY↔QWERTZ, Dvorak, Colemak — the
+app compares layouts, not alphabets
 
-**Not supported:** CJK input methods (Chinese, Japanese, Korean) — these use composing engines, not direct key mapping
+**Should work (same mechanism):** Greek, Hebrew, Armenian, Georgian, Polish, Czech,
+Turkish, Swedish, Norwegian, Danish, Dutch, Romanian, Hungarian, and any other
+standard keyboard layout
+
+**Not supported:** CJK input methods (Chinese, Japanese, Korean) — these use
+composing engines, not direct key mapping
 
 ## Install
 
@@ -60,13 +90,15 @@ brew tap komandakycto/bilingual-switcher https://github.com/komandakycto/bilingu
 brew install --cask bilingual-switcher
 ```
 
-Homebrew automatically strips the macOS quarantine flag — the app opens without Gatekeeper prompts.
+Homebrew strips the macOS quarantine flag for you, so the app opens without
+Gatekeeper prompts — and `brew upgrade` keeps it current.
 
 ### Manual download
 
 Download the latest `.dmg` from [Releases](https://github.com/komandakycto/bilingual-switcher/releases), open it, and drag the app to Applications.
 
-**Gatekeeper notice:** The app is ad-hoc signed (not notarized with Apple). Before first launch:
+**Gatekeeper notice:** releases are signed with a stable identity but are *not*
+notarized with Apple, so Gatekeeper blocks the first launch. Before opening:
 
 ```bash
 xattr -cr /Applications/BilingualSwitcher.app
@@ -102,7 +134,7 @@ make install   # copies to /Applications
 
 Menu bar icon → Preferences → click the shortcut field → press your desired combination → Save.
 
-You can also bind a **modifier-only** combo like ⌥⌘ — press and release the modifiers together with no other key, Punto Switcher style. Two or more modifiers are required, and it fires only on a clean release, so ⌥⌘C and other real shortcuts still work as usual.
+You can also bind a **modifier-only** combo like ⌥⌘ — press and release the modifiers together with no other key. Two or more modifiers are required, and it fires only on a clean release, so ⌥⌘C and other real shortcuts still work as usual.
 
 ### Examples
 
@@ -121,7 +153,7 @@ The app uses the macOS `UCKeyTranslate` API to read the character map of every k
 2. Scores the text against each installed layout to detect which one produced it
 3. Converts each character via physical key codes: source layout char → key code → target layout char
 4. Deletes the original and pastes the result
-5. Restores your original clipboard
+5. Restores your original clipboard — every item and data type, in the order it had
 
 With 3+ layouts installed, the app tracks the two you most recently switched between and converts within that pair.
 
