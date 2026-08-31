@@ -60,8 +60,8 @@ clipboard back exactly as it was — every item, every data type, in the origina
 order. See [How it works](#how-it-works).
 
 Verifying the above is meant to be practical rather than aspirational: the whole
-source is ~2,300 lines of Swift, and every commit runs 128 tests in CI — plus the
-same suite again under AddressSanitizer, and a static analysis pass.
+source is ~2,300 lines of Swift, and every commit runs the test suite in CI —
+plus the same suite again under AddressSanitizer, and a static analysis pass.
 
 ## Supported Languages
 
