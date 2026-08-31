@@ -189,7 +189,7 @@ class TextSwitcher {
     private func completeConversion(
         copied: Bool,
         copiedText: String?,
-        savedItems: [[NSPasteboard.PasteboardType: Data]],
+        savedItems: [ItemSnapshot],
         pasteboard: NSPasteboard,
         frontBundleID: String?
     ) {
@@ -267,17 +267,22 @@ class TextSwitcher {
 
     // MARK: - Pasteboard helpers (static + internal — tests drive them directly)
 
+    /// One pasteboard item as an ordered list of its type/data pairs.
+    ///
+    /// Ordered, and never a Dictionary: a pasting app takes the *first* type on
+    /// the item it understands, so the order is part of the clipboard state we
+    /// promise to put back. Dictionary iteration order is unspecified and
+    /// reseeded every process, which restored a private binary type ahead of
+    /// plain text often enough to make pastes come out as gibberish.
+    typealias ItemSnapshot = [(type: NSPasteboard.PasteboardType, data: Data)]
+
     /// Snapshot every type+data pair on the pasteboard so we can re-create the
     /// items later. Reads happen synchronously on the caller's queue.
-    static func snapshot(of pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
-        return pasteboard.pasteboardItems?.map { item -> [NSPasteboard.PasteboardType: Data] in
-            var dict: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    dict[type] = data
-                }
+    static func snapshot(of pasteboard: NSPasteboard) -> [ItemSnapshot] {
+        return pasteboard.pasteboardItems?.map { item -> ItemSnapshot in
+            item.types.compactMap { type in
+                item.data(forType: type).map { (type: type, data: $0) }
             }
-            return dict
         } ?? []
     }
 
@@ -287,15 +292,15 @@ class TextSwitcher {
     /// state (clear it), not no-op and leave intermediate Cmd+C content
     /// behind.
     static func restoreClipboard(
-        _ items: [[NSPasteboard.PasteboardType: Data]],
+        _ items: [ItemSnapshot],
         to pasteboard: NSPasteboard
     ) {
         pasteboard.clearContents()
         guard !items.isEmpty else { return }
-        let pasteboardItems = items.map { dict -> NSPasteboardItem in
+        let pasteboardItems = items.map { pairs -> NSPasteboardItem in
             let item = NSPasteboardItem()
-            for (type, data) in dict {
-                item.setData(data, forType: type)
+            for pair in pairs {
+                item.setData(pair.data, forType: pair.type)
             }
             return item
         }
