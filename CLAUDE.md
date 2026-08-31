@@ -11,7 +11,7 @@ macOS menu bar app that converts selected text between any two installed keyboar
 ```bash
 make setup    # Download Sparkle framework (required before first build)
 make          # Build universal binary (arm64 + x86_64) → build/BilingualSwitcher.app
-make test     # Compile and run XCTest suite (125 tests)
+make test     # Compile and run XCTest suite
 make lint     # SwiftLint in --strict mode (CI enforces this)
 make run      # Build + launch the app
 make install  # Copy to /Applications
