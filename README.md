@@ -43,7 +43,7 @@ Armenian, Georgian — and same-script pairs like QWERTY↔AZERTY or QWERTY↔QW
 - **Auto-switch keyboard layout** — optionally switch to the target language after conversion
 - **Launch at Login** — start automatically with macOS
 - **Auto-updates** — built-in update checking via Sparkle
-- **Small enough to read** — ~2,300 lines of Swift, under 5 MB installed, no Electron
+- **Small enough to read** — native Swift, no Electron, no bundled runtime or downloaded models
 
 ## What it doesn't do
 
@@ -59,8 +59,8 @@ Your clipboard *is* used: the app copies the selection with ⌘C, then puts the
 clipboard back exactly as it was — every item, every data type, in the original
 order. See [How it works](#how-it-works).
 
-Verifying the above is meant to be practical rather than aspirational: the whole
-source is ~2,300 lines of Swift, and every commit runs the test suite in CI —
+Verifying the above is meant to be practical rather than aspirational: the source
+is small enough to read end to end, and every commit runs the test suite in CI —
 plus the same suite again under AddressSanitizer, and a static analysis pass.
 
 ## Supported Languages
