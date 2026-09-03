@@ -187,4 +187,99 @@ final class KeyboardLayoutMapTests: XCTestCase {
         XCTAssertEqual(mapping?.keyCode, 0, "'ф' should be at key code 0")
         XCTAssertEqual(mapping?.shifted, false)
     }
+
+    // MARK: - Dead-key compositions
+
+    /// Pinned to the U.S./ABC family on purpose: those layouts keep every dead
+    /// key on the Option layer (⌥e ⌥u ⌥i ⌥n ⌥`), which is exactly the case the
+    /// probe used to miss. Other layouts put accents elsewhere, so asserting
+    /// specific characters against whatever happens to be installed would test
+    /// the machine rather than the code.
+    private func usLayoutWithOptionDeadKeys() throws -> LayoutInfo {
+        let layouts = KeyboardLayoutMap.installedLayouts()
+        guard let us = layouts.first(where: {
+            $0.id == "com.apple.keylayout.ABC" || $0.id == "com.apple.keylayout.US"
+        }) else {
+            throw XCTSkip("Neither the ABC nor the U.S. layout is installed")
+        }
+        return us
+    }
+
+    private func russianLayout() throws -> LayoutInfo {
+        guard let ru = KeyboardLayoutMap.installedLayouts().first(where: { $0.languages.contains("ru") }) else {
+            throw XCTSkip("Russian layout not installed")
+        }
+        return ru
+    }
+
+    /// The regression this section exists for: dead keys were probed with the
+    /// bare and Shift states only, so on these layouts none were found and not
+    /// one accented character reached the maps.
+    func testDeadKeyCompositionsIncludeOptionLayerAccents() throws {
+        let reverse = KeyboardLayoutMap.buildReverseMap(for: try usLayoutWithOptionDeadKeys())
+        for char: Character in ["é", "è", "ü", "ñ", "ô"] {
+            XCTAssertNotNil(reverse[char],
+                            "'\(char)' is typed on this layout with an Option dead key and must be mapped")
+        }
+    }
+
+    /// A composition resolves to its base key. The accent has no counterpart in
+    /// the other layout, so this is deliberately lossy — and it is what lets an
+    /// accented character convert at all instead of passing through untouched.
+    func testComposedCharacterMapsToItsBaseKey() throws {
+        let reverse = KeyboardLayoutMap.buildReverseMap(for: try usLayoutWithOptionDeadKeys())
+        guard let plainE = reverse["e"] else {
+            XCTFail("'e' missing from the reverse map")
+            return
+        }
+        XCTAssertEqual(reverse["é"]?.keyCode, plainE.keyCode)
+        XCTAssertEqual(reverse["é"]?.shifted, false)
+        XCTAssertEqual(reverse["É"]?.keyCode, plainE.keyCode)
+        XCTAssertEqual(reverse["É"]?.shifted, true, "The capital comes from the shifted base key")
+    }
+
+    /// A base key that does not combine still emits output — the accent plus the
+    /// base character (⌥e then n → `´n`), and the bare accent for space. Taking
+    /// `first` of those filed the accent itself under an arbitrary key.
+    func testStandaloneAccentsAreNotMapped() throws {
+        let reverse = KeyboardLayoutMap.buildReverseMap(for: try usLayoutWithOptionDeadKeys())
+        for char: Character in ["´", "¨", "˜", "ˆ"] {
+            XCTAssertNil(reverse[char],
+                         "'\(char)' is the bare accent, which no single key produces — "
+                         + "mapping it would file it under an arbitrary base key")
+        }
+    }
+
+    /// Detection scores text against these sets. While é belonged to no layout's
+    /// set, accented text gave the scorer nothing to weigh.
+    func testCharacterSetIncludesComposedCharacters() throws {
+        let set = KeyboardLayoutMap.characterSet(for: try usLayoutWithOptionDeadKeys())
+        XCTAssertTrue(set.contains("é"), "characterSet must expose composed characters to detection")
+    }
+
+    func testComposedCharacterConvertsInsteadOfPassingThrough() throws {
+        let us = try usLayoutWithOptionDeadKeys()
+        let ru = try russianLayout()
+
+        let converted = LayoutConverter.convertText("é", from: us, to: ru)
+        XCTAssertNotEqual(converted, "é", "An unmapped character passes through untouched")
+        XCTAssertEqual(converted, LayoutConverter.convertText("e", from: us, to: ru),
+                       "é resolves to the same key as 'e', so it must convert the same way")
+    }
+
+    /// Guard on the newly added entries: they must not disturb anything that
+    /// already mapped. Every directly typed character still survives the trip
+    /// out to the other layout and back.
+    func testDirectCharactersStillRoundTripLosslessly() throws {
+        let us = try usLayoutWithOptionDeadKeys()
+        let ru = try russianLayout()
+
+        let direct = Set(KeyboardLayoutMap.buildCharacterMap(for: us).values)
+        XCTAssertFalse(direct.isEmpty, "Forward map should not be empty")
+        for char in direct {
+            let there = LayoutConverter.convertText(String(char), from: us, to: ru)
+            let back = LayoutConverter.convertText(there, from: ru, to: us)
+            XCTAssertEqual(back, String(char), "Round trip lost '\(char)' (via '\(there)')")
+        }
+    }
 }

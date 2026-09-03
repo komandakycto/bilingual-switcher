@@ -46,6 +46,25 @@ class KeyboardLayoutMap {
 
     /// Shift modifier state for UCKeyTranslate: (shiftKey >> 8) & 0xFF.
     private static let shiftModifier: UInt32 = (UInt32(shiftKey) >> 8) & 0xFF
+    /// Option modifier state, same encoding as `shiftModifier`.
+    private static let optionModifier: UInt32 = (UInt32(optionKey) >> 8) & 0xFF
+
+    /// Modifier states to try when hunting for dead keys.
+    ///
+    /// Option matters as much as the bare key: on the U.S./ABC family — the most
+    /// widely used Latin layouts — every dead key sits on the Option layer (⌥e ⌥u
+    /// ⌥i ⌥n ⌥`), and nowhere else. Probing only bare and Shift found zero dead
+    /// keys there, so no accented character reached the maps at all.
+    private static let deadKeyModifierStates: [UInt32] = [
+        0,
+        shiftModifier,
+        optionModifier,
+        optionModifier | shiftModifier
+    ]
+
+    /// Space. Pressed after a dead key it yields the accent on its own (⌥e space
+    /// → `´`), which is how we recognise a base key that did not combine.
+    private static let spaceKeyCode: UInt16 = 49
 
     // MARK: - Layout Enumeration
 
@@ -250,8 +269,8 @@ class KeyboardLayoutMap {
         let keyboardType = UInt32(LMGetKbdType())
 
         for deadKeyCode: UInt16 in 0...127 {
-            for deadShift in [false, true] {
-                guard let composed = translateDeadKey(deadKeyCode: deadKeyCode, shift: deadShift,
+            for modifiers in deadKeyModifierStates {
+                guard let composed = translateDeadKey(deadKeyCode: deadKeyCode, modifiers: modifiers,
                                                      layoutData: layoutData,
                                                      keyboardType: keyboardType) else { continue }
                 for result in composed where reverse[result.character] == nil {
@@ -341,69 +360,60 @@ class KeyboardLayoutMap {
         let character: Character
     }
 
-    /// Try a key as a dead key, combining with all main keyboard keys (0–50).
-    private static func translateDeadKey(deadKeyCode: UInt16, shift: Bool,
+    /// Try a key as a dead key under `modifiers`, combining it with every main
+    /// keyboard key (0–50).
+    ///
+    /// A base key that does *not* combine still produces output: the accent
+    /// followed by the base character (⌥e then n → `´n`), and the bare accent for
+    /// space (⌥e then space → `´`). Taking `first` of those wrote the accent into
+    /// the map under an arbitrary key. Only a result that collapses to a single
+    /// character, and differs from the accent alone, is a real composition.
+    private static func translateDeadKey(deadKeyCode: UInt16, modifiers: UInt32,
                                          layoutData: Data, keyboardType: UInt32) -> [DeadKeyResult]? {
-        let modifierState: UInt32 = shift ? shiftModifier : 0
-        var deadKeyState: UInt32 = 0
-        let maxLength = 4
-        var chars = [UniChar](repeating: 0, count: maxLength)
-        var actualLength: Int = 0
-
-        let result1 = layoutData.withUnsafeBytes { rawBuffer -> OSStatus in
-            guard let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
-                return errSecParam
+        /// One UCKeyTranslate call, carrying `state` in and back out so a dead
+        /// key stays armed across the two presses that make a composition.
+        func translate(_ keyCode: UInt16, _ mods: UInt32, _ state: inout UInt32) -> String? {
+            let maxLength = 4
+            var chars = [UniChar](repeating: 0, count: maxLength)
+            var actualLength = 0
+            let status = layoutData.withUnsafeBytes { rawBuffer -> OSStatus in
+                guard let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
+                    return errSecParam
+                }
+                return UCKeyTranslate(
+                    ptr,
+                    keyCode,
+                    UInt16(kUCKeyActionDown),
+                    mods,
+                    keyboardType,
+                    0, // allow dead keys
+                    &state,
+                    maxLength,
+                    &actualLength,
+                    &chars
+                )
             }
-            return UCKeyTranslate(
-                ptr,
-                deadKeyCode,
-                UInt16(kUCKeyActionDown),
-                modifierState,
-                keyboardType,
-                0, // allow dead keys
-                &deadKeyState,
-                maxLength,
-                &actualLength,
-                &chars
-            )
+            guard status == noErr, actualLength > 0 else { return nil }
+            return String(utf16CodeUnits: chars, count: actualLength)
         }
 
-        guard result1 == noErr, deadKeyState != 0 else { return nil }
+        var armedState: UInt32 = 0
+        _ = translate(deadKeyCode, modifiers, &armedState)
+        guard armedState != 0 else { return nil }
+
+        var spaceState = armedState
+        let accentAlone = translate(spaceKeyCode, 0, &spaceState)
 
         var results: [DeadKeyResult] = []
-        let savedDeadState = deadKeyState
-
         for baseCode: UInt16 in 0...50 {
-            for baseShift in [false, true] {
-                deadKeyState = savedDeadState
-                let baseMod: UInt32 = baseShift ? shiftModifier : 0
-                chars = [UniChar](repeating: 0, count: maxLength)
-                actualLength = 0
-
-                let result2 = layoutData.withUnsafeBytes { rawBuffer -> OSStatus in
-                    guard let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
-                        return errSecParam
-                    }
-                    return UCKeyTranslate(
-                        ptr,
-                        baseCode,
-                        UInt16(kUCKeyActionDown),
-                        baseMod,
-                        keyboardType,
-                        0,
-                        &deadKeyState,
-                        maxLength,
-                        &actualLength,
-                        &chars
-                    )
-                }
-
-                if result2 == noErr, actualLength > 0 {
-                    let str = String(utf16CodeUnits: chars, count: actualLength)
-                    if let char = str.first, char.unicodeScalars.first.map({ $0.value >= 0x20 }) == true {
-                        results.append(DeadKeyResult(baseKeyCode: baseCode, baseShifted: baseShift, character: char))
-                    }
-                }
+            for baseShifted in [false, true] {
+                var state = armedState
+                guard let output = translate(baseCode, baseShifted ? shiftModifier : 0, &state),
+                      output.count == 1,
+                      output != accentAlone,
+                      let char = output.first,
+                      char.unicodeScalars.first.map({ $0.value >= 0x20 }) == true else { continue }
+                results.append(DeadKeyResult(baseKeyCode: baseCode, baseShifted: baseShifted, character: char))
             }
         }
 
