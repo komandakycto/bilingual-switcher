@@ -71,7 +71,10 @@ final class MultiLanguageTests: XCTestCase {
         guard let germanLayout = layouts.first(where: {
             $0.id.lowercased().contains("german") && $0.languages.contains("de")
         }) else {
-            throw XCTSkip("Dedicated German layout not installed (ABC doesn't have umlauts)")
+            // The reason is layout identity, not that ABC lacks umlauts: since
+            // dead keys are probed on the Option layer, ⌥u and ⌥o put ü and ö in
+            // ABC's map too. ABC is simply not a German layout.
+            throw XCTSkip("Dedicated German layout not installed")
         }
         guard layoutAvailable(language: "ru") else {
             throw XCTSkip("Russian layout not installed")
@@ -96,17 +99,23 @@ final class MultiLanguageTests: XCTestCase {
     func testFrenchLayout_deadKeys() throws {
         // A *dedicated* French layout, not merely one that lists "fr" among its
         // languages: ABC lists ninety-odd, so the loose match ran this against
-        // U.S. QWERTY, where é is absent by design. It then printed a warning
-        // instead of failing, so the mismatch read as a product defect for as
-        // long as the test existed.
+        // U.S. QWERTY, which is not a French layout at all. It then printed a
+        // warning rather than failing, so it reported green whatever it found.
         guard let french = KeyboardLayoutMap.installedLayouts().first(where: {
             $0.id.lowercased().contains("french") && $0.languages.contains("fr")
         }) else {
             throw XCTSkip("Dedicated French layout not installed")
         }
         let reverseMap = KeyboardLayoutMap.buildReverseMap(for: french)
-        for char: Character in ["é", "è"] {
-            XCTAssertNotNil(reverseMap[char], "French layout should map '\(char)'")
+        // ô and ë rather than é and è. On AZERTY the latter are unshifted
+        // number-row keys, so pass 1 of buildCharacterMap maps them before
+        // addDeadKeyCompositions runs at all — asserting on those would stay
+        // green with dead-key support deleted outright. The circumflex and the
+        // diaeresis are what this layout actually spends dead keys on, so they
+        // reach the map only through the composition path.
+        for char: Character in ["ô", "ë"] {
+            XCTAssertNotNil(reverseMap[char],
+                            "French layout should compose '\(char)' through a dead key")
         }
     }
 

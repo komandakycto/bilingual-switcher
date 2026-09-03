@@ -245,7 +245,8 @@ final class KeyboardLayoutMapTests: XCTestCase {
         let reverse = KeyboardLayoutMap.buildReverseMap(for: try usLayoutWithOptionDeadKeys())
         for char: Character in ["´", "¨", "˜", "ˆ"] {
             XCTAssertNil(reverse[char],
-                         "'\(char)' is a non-combining artefact, not a character this layout produces")
+                         "'\(char)' is the bare accent, which no single key produces — "
+                         + "mapping it would file it under an arbitrary base key")
         }
     }
 
