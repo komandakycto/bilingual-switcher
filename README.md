@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-Fix text typed in the wrong keyboard layout — for <em>any</em> two layouts<br>
+Fix text typed in the wrong keyboard layout — for <em>any two</em> keyboard layouts<br>
 installed on your Mac, not just English and Russian.
 </p>
 
@@ -34,7 +34,7 @@ Armenian, Georgian — and same-script pairs like QWERTY↔AZERTY or QWERTY↔QW
 
 ## Features
 
-- **Any pair of layouts** — reads your installed layouts through the macOS `UCKeyTranslate` API at runtime. No hardcoded mappings, no built-in language list
+- **Any pair of keyboard layouts** — reads them through the macOS `UCKeyTranslate` API at runtime. No hardcoded mappings, no built-in language list (layouts, not CJK input methods — [what that means](#supported-layouts))
 - **Never watches you type** — no event tap, no keystroke buffer. macOS wakes the app on your hotkey and at no other moment
 - **Deterministic** — converts exactly what you selected, key by key, from the system's own layout tables. No word lists, no language model, no guessing
 - **Nothing happens on its own** — it fires when you press the hotkey. Your text is never rewritten while you type
@@ -63,11 +63,12 @@ Verifying the above is meant to be practical rather than aspirational: the sourc
 is small enough to read end to end, and every commit runs the test suite in CI —
 plus the same suite again under AddressSanitizer, and a static analysis pass.
 
-## Supported Languages
+## Supported layouts
 
-The app works with **any keyboard layout installed on your Mac** that maps
-physical keys to characters — which covers most languages, and both directions
-of any pair.
+A **keyboard layout** is the kind of input source where one physical key produces
+one character. The app converts between any two of them you have installed, in
+either direction — that is what "any two" above means, and it covers most of the
+world's languages.
 
 **Tested:** English, Russian, Ukrainian, French, German, Spanish, Portuguese, Italian
 
@@ -78,8 +79,11 @@ app compares layouts, not alphabets
 Turkish, Swedish, Norwegian, Danish, Dutch, Romanian, Hungarian, and any other
 standard keyboard layout
 
-**Not supported:** CJK input methods (Chinese, Japanese, Korean) — these use
-composing engines, not direct key mapping
+**Input methods are a different thing, and out of scope.** Chinese, Japanese and
+Korean don't map a key to a character — you type a sequence and choose from
+candidates. Text typed with the wrong one isn't mis-mapped characters that can be
+translated back; recovering it means re-running the composing engine. That is a
+different problem, and this app does not solve it.
 
 ## Install
 
