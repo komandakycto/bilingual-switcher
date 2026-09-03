@@ -280,6 +280,47 @@ final class TextSwitcherTests: XCTestCase {
         XCTAssertEqual(pasteboard.data(forType: .rtf), Data("{\\rtf1 hello}".utf8))
     }
 
+    /// A pasting app takes the *first* type on the item it understands, so
+    /// the order of `item.types` is part of the clipboard state we promise to
+    /// put back. Storing the snapshot in a Dictionary lost it: iteration
+    /// order is unspecified and reseeded every process, so a private binary
+    /// type could be restored ahead of plain text and the user pasted
+    /// gibberish into apps that would have taken the text.
+    ///
+    /// Eight types make an accidental pass (1/8!) vanishingly unlikely.
+    func testSnapshotAndRestorePreservesTypeOrder() {
+        let types: [NSPasteboard.PasteboardType] = [
+            .string,
+            NSPasteboard.PasteboardType("org.example.messenger.custom"),
+            .rtf,
+            NSPasteboard.PasteboardType("com.example.alpha"),
+            NSPasteboard.PasteboardType("com.example.bravo"),
+            NSPasteboard.PasteboardType("com.example.charlie"),
+            NSPasteboard.PasteboardType("com.example.delta"),
+            NSPasteboard.PasteboardType("com.example.echo")
+        ]
+        let item = NSPasteboardItem()
+        for (index, type) in types.enumerated() {
+            item.setData(Data("value-\(index)".utf8), forType: type)
+        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+
+        // Read back rather than reusing `types`: AppKit derives extra types of
+        // its own (setting .string also publishes utf16-external-plain-text),
+        // and the state we must restore is the one the pasteboard actually had.
+        let originalOrder = pasteboard.pasteboardItems?.first?.types ?? []
+        XCTAssertGreaterThanOrEqual(originalOrder.count, types.count)
+
+        let snapshot = TextSwitcher.snapshot(of: pasteboard)
+        pasteboard.clearContents()
+        TextSwitcher.restoreClipboard(snapshot, to: pasteboard)
+
+        let restoredOrder = pasteboard.pasteboardItems?.first?.types ?? []
+        XCTAssertEqual(restoredOrder, originalOrder,
+                       "Restore must preserve the pasteboard's type order")
+    }
+
     /// Regression for reviewer-found bug: an empty snapshot means the
     /// original clipboard was empty. After Cmd+C the clipboard holds the
     /// selected text; restoring must put it back into the empty state,
