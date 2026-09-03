@@ -94,15 +94,19 @@ final class MultiLanguageTests: XCTestCase {
     }
 
     func testFrenchLayout_deadKeys() throws {
-        guard layoutAvailable(language: "fr") else {
-            throw XCTSkip("French layout not installed")
+        // A *dedicated* French layout, not merely one that lists "fr" among its
+        // languages: ABC lists ninety-odd, so the loose match ran this against
+        // U.S. QWERTY, where é is absent by design. It then printed a warning
+        // instead of failing, so the mismatch read as a product defect for as
+        // long as the test existed.
+        guard let french = KeyboardLayoutMap.installedLayouts().first(where: {
+            $0.id.lowercased().contains("french") && $0.languages.contains("fr")
+        }) else {
+            throw XCTSkip("Dedicated French layout not installed")
         }
-        let frenchLayout = KeyboardLayoutMap.installedLayouts().first { $0.languages.contains("fr") }!
-        let reverseMap = KeyboardLayoutMap.buildReverseMap(for: frenchLayout)
+        let reverseMap = KeyboardLayoutMap.buildReverseMap(for: french)
         for char: Character in ["é", "è"] {
-            if reverseMap[char] == nil {
-                print("⚠️ '\(char)' not in French reverse map (may need dead key composition)")
-            }
+            XCTAssertNotNil(reverseMap[char], "French layout should map '\(char)'")
         }
     }
 
