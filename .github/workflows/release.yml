@@ -150,6 +150,13 @@ jobs:
             zap trash: [
               "~/Library/Preferences/com.komandakycto.bilingual-switcher.plist",
             ]
+
+            caveats <<~EOS
+              Bilingual Switcher is not notarized by Apple, so macOS blocks its first launch.
+              Approve it once: click Done, then System Settings → Privacy & Security → Open Anyway.
+              Or remove the quarantine flag:
+                xattr -dr com.apple.quarantine #{appdir}/BilingualSwitcher.app
+            EOS
           end
           EOF
 

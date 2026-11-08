@@ -94,23 +94,28 @@ brew tap komandakycto/bilingual-switcher https://github.com/komandakycto/bilingu
 brew install --cask bilingual-switcher
 ```
 
-Homebrew strips the macOS quarantine flag for you, so the app opens without
-Gatekeeper prompts — and `brew upgrade` keeps it current.
+`brew upgrade` keeps it current. See [First launch](#first-launch) below.
 
 ### Manual download
 
 Download the latest `.dmg` from [Releases](https://github.com/komandakycto/bilingual-switcher/releases), open it, and drag the app to Applications.
 
-**Gatekeeper notice:** releases are signed with a stable identity but are *not*
-notarized with Apple, so Gatekeeper blocks the first launch. Before opening:
-
-```bash
-xattr -cr /Applications/BilingualSwitcher.app
-```
-
-Or: try to open the app, get blocked, then go to **System Settings → Privacy & Security** → scroll down → **Open Anyway**.
-
 You can verify the download integrity with SHA256 checksums from the [release page](https://github.com/komandakycto/bilingual-switcher/releases).
+
+### First launch
+
+Releases are signed with a stable identity but are *not* notarized with Apple,
+so macOS blocks the first launch with *"Apple could not verify
+BilingualSwitcher is free of malware"* — whether you installed via Homebrew or
+the DMG. Approve it once, either way:
+
+- Click **Done** (not *Move to Trash*), then go to **System Settings → Privacy &
+  Security**, scroll down and click **Open Anyway**.
+- Or remove the quarantine flag:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/BilingualSwitcher.app
+  ```
 
 ### Build from source
 
