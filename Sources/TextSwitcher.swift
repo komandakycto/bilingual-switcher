@@ -215,7 +215,7 @@ class TextSwitcher {
             return
         }
 
-        let (converted, direction) = LayoutConverter.convert(text)
+        let (converted, target) = LayoutConverter.convert(text)
         let chunkCount = Self.chunkUTF16(converted, maxCodeUnits: Self.unicodeChunkLimit).count
         Self.diag("text=\(text.prefix(120))")
         Self.diag("converted=\(converted.prefix(120)) chunks=\(chunkCount)")
@@ -260,8 +260,9 @@ class TextSwitcher {
         }
         Self.diag("injection done")
 
-        if UserDefaults.standard.switchLayoutAfterConversion {
-            InputSourceSwitcher.switchTo(direction: direction)
+        if UserDefaults.standard.switchLayoutAfterConversion, let target {
+            Self.diag("switching layout to \(target.id)")
+            InputSourceSwitcher.switchTo(target)
         }
     }
 

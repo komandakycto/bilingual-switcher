@@ -15,10 +15,14 @@ class LayoutConverter {
     /// Convert text between the user's installed keyboard layouts.
     /// Auto-detects which layout produced the text and converts to the other.
     /// For 3+ layouts, uses the two most recently active layouts as the working pair.
-    static func convert(_ text: String, direction: ConversionDirection = .auto) -> (String, ConversionDirection) {
+    ///
+    /// `target` is returned rather than a direction because a direction only means something
+    /// against `workingLayouts`, whose order differs between the 2-layout and 3+-layout cases.
+    /// It is nil when fewer than two layouts are installed.
+    static func convert(_ text: String, direction: ConversionDirection = .auto) -> (text: String, target: LayoutInfo?) {
         let layouts = KeyboardLayoutMap.installedLayouts()
         guard layouts.count >= 2 else {
-            return (text, .auto)
+            return (text, nil)
         }
 
         // For 3+ layouts, narrow down to the user's recent pair.
@@ -29,7 +33,6 @@ class LayoutConverter {
             workingLayouts = layouts
         }
 
-        let resolvedDirection: ConversionDirection
         let sourceLayout: LayoutInfo
         let targetLayout: LayoutInfo
 
@@ -38,19 +41,16 @@ class LayoutConverter {
             let detected = detectSourceLayout(text, layouts: workingLayouts)
             sourceLayout = detected.source
             targetLayout = detected.target
-            resolvedDirection = detected.direction
         case .layoutAToB:
             sourceLayout = workingLayouts[0]
             targetLayout = workingLayouts[1]
-            resolvedDirection = .layoutAToB
         case .layoutBToA:
             sourceLayout = workingLayouts[1]
             targetLayout = workingLayouts[0]
-            resolvedDirection = .layoutBToA
         }
 
         let converted = convertText(text, from: sourceLayout, to: targetLayout)
-        return (converted, resolvedDirection)
+        return (converted, targetLayout)
     }
 
     /// Detect which installed layout most likely produced the given text.
