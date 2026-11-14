@@ -135,6 +135,22 @@ final class LayoutConverterTests: XCTestCase {
         XCTAssertEqual(direction, .layoutAToB)
     }
 
+    // MARK: - Switch target
+
+    /// The post-conversion switch activates `target`, so it must be the layout the text was
+    /// converted to in both directions, whichever layout is active or first in the system list.
+    func testTarget_isLayoutTextWasConvertedTo_bothDirections() throws {
+        try requireEnRu()
+
+        let toRussian = LayoutConverter.convert("ghbdtn")
+        XCTAssertEqual(toRussian.text, "привет")
+        XCTAssertTrue(toRussian.target?.languages.contains("ru") == true, "target: \(toRussian.target?.id ?? "nil")")
+
+        let toEnglish = LayoutConverter.convert("привет")
+        XCTAssertEqual(toEnglish.text, "ghbdtn")
+        XCTAssertTrue(toEnglish.target?.languages.contains("en") == true, "target: \(toEnglish.target?.id ?? "nil")")
+    }
+
     // MARK: - Backward Compatibility
 
     func testBackwardCompat_lowercaseLetters() throws {
